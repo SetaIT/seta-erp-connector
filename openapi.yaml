@@ -1,0 +1,172 @@
+openapi: 3.1.0
+info:
+  title: Seta Telecom ERP Connector
+  version: 1.0.0
+  description: Conector seguro entre ChatGPT Actions e a API Betel Tecnologia.
+servers:
+  - url: https://SEU-DOMINIO-DO-CONECTOR
+security:
+  - bearerAuth: []
+paths:
+  /erp/clientes:
+    get:
+      operationId: buscarClientes
+      summary: Busca clientes no ERP
+      parameters:
+        - in: query
+          name: pagina
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: nome
+          schema: { type: string }
+        - in: query
+          name: cnpj
+          schema: { type: string }
+        - in: query
+          name: email
+          schema: { type: string }
+      responses:
+        '200':
+          description: Resultado da busca
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+    post:
+      operationId: criarCliente
+      summary: Cria um cliente no ERP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Cliente criado
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /erp/produtos:
+    get:
+      operationId: buscarProdutos
+      summary: Busca produtos no ERP
+      parameters:
+        - in: query
+          name: pagina
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: nome
+          schema: { type: string }
+        - in: query
+          name: codigo_interno
+          schema: { type: string }
+      responses:
+        '200':
+          description: Resultado da busca
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /erp/usuarios:
+    get:
+      operationId: buscarUsuarios
+      summary: Lista ou busca usuarios e vendedores do ERP
+      parameters:
+        - in: query
+          name: pagina
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: nome
+          schema: { type: string }
+      responses:
+        '200':
+          description: Usuarios do ERP
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /erp/situacoes-orcamentos:
+    get:
+      operationId: buscarSituacoesOrcamento
+      summary: Lista situacoes disponiveis para orcamentos
+      responses:
+        '200':
+          description: Situacoes de orcamento
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /erp/orcamentos:
+    get:
+      operationId: buscarOrcamentos
+      summary: Busca orcamentos existentes
+      parameters:
+        - in: query
+          name: pagina
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: codigo
+          schema: { type: string }
+        - in: query
+          name: cliente_id
+          schema: { type: string }
+      responses:
+        '200':
+          description: Orcamentos encontrados
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+    post:
+      operationId: criarOrcamento
+      summary: Cria um orcamento ou proposta no ERP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tipo, codigo, cliente_id, situacao_id, data]
+              additionalProperties: true
+              properties:
+                tipo: { type: string }
+                codigo: { type: [string, integer] }
+                cliente_id: { type: [string, integer] }
+                vendedor_id: { type: [string, integer] }
+                data: { type: string }
+                situacao_id: { type: [string, integer] }
+                validade: { type: string }
+                introducao: { type: string }
+                observacoes: { type: string }
+                observacoes_interna: { type: string }
+                valor_frete: { type: [string, number] }
+                desconto_valor: { type: [string, number] }
+                desconto_porcentagem: { type: [string, number] }
+                produtos:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+      responses:
+        '200':
+          description: Orcamento criado
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /erp/orcamentos/{id}:
+    get:
+      operationId: consultarOrcamento
+      summary: Consulta um orcamento pelo ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Orcamento encontrado
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
