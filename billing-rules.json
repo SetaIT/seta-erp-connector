@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "updated_at": "2026-08-18",
+  "clients": [
+    {
+      "key": "veolia",
+      "cliente_nome": "Veolia",
+      "aliases": ["Veolia"],
+      "cliente_erp_id": null,
+      "tipo": "locacao",
+      "ativo": true,
+      "emissao": {
+        "base": "data_edicao"
+      },
+      "vencimento": {
+        "base": "vencimento_fatura_anterior",
+        "dias_minimos": 45,
+        "ajuste_dia_semana": "quarta-feira",
+        "regra_ajuste": "primeira_quarta_igual_ou_posterior",
+        "nunca_antecipar": true
+      },
+      "workflow": {
+        "situacao_faturamento_para_editar": "Em aberto",
+        "situacao_locacao_para_faturar": "Ativo",
+        "gerar_proxima_fatura_agora": true,
+        "exigir_confirmacao_antes_de_gerar": true
+      },
+      "observacoes": "Regra especifica Veolia: vencimento anterior + 45 dias, ajustado para a primeira quarta-feira igual ou posterior. Data de emissao e a data da edicao."
+    }
+  ]
+}
