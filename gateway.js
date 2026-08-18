@@ -38,6 +38,15 @@ function handleError(err, res) {
   return res.status(500).json({ error: 'gateway_error', message: err.message });
 }
 
+function diagnosticError(err) {
+  return {
+    status: err?.status || 500,
+    source: err?.source || 'unknown',
+    message: err?.message || 'Erro desconhecido',
+    details: err?.data || null
+  };
+}
+
 async function hubspotRequest(path, { method = 'GET', body } = {}) {
   if (!HUBSPOT_ACCESS_TOKEN) {
     const err = new Error('HUBSPOT_ACCESS_TOKEN nao configurado');
@@ -277,7 +286,13 @@ function stageLabel(stage, pipeline, rules) {
   return stage || null;
 }
 
-function recommendedAction(deal, emails, rules) {
+function recommendedAction(deal, emails, rules, dealLookupStatus = 'success') {
+  if (dealLookupStatus !== 'success') {
+    return {
+      code: 'verificar_hubspot',
+      label: 'Repetir a consulta do Deal no HubSpot antes de decidir a próxima ação'
+    };
+  }
   if (!deal) return { code: 'criar_deal', label: 'Criar Deal no HubSpot a partir da proposta do ERP' };
   const pipeline = String(deal?.properties?.pipeline || '');
   const stage = String(deal?.properties?.dealstage || '');
@@ -329,48 +344,91 @@ app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
 
     const internalId = summary.id ?? summary.orcamento_id ?? summary.id_orcamento ?? null;
     let erpDetail = summary;
+    let erpDetailStatus = 'skipped';
+    let erpDetailError = null;
     if (internalId) {
       try {
         erpDetail = objectFromPayload(await legacyRequest(`/erp/orcamentos/${encodeURIComponent(internalId)}`)) || summary;
+        erpDetailStatus = 'success';
       } catch (err) {
         erpDetail = summary;
+        erpDetailStatus = 'error';
+        erpDetailError = diagnosticError(err);
       }
     }
 
     const identity = proposalIdentity(erpDetail);
-    const dealSearch = await hubspotSearchExact(
-      'deals',
-      'numero_da_proposta',
-      numero,
-      ['dealname', 'numero_da_proposta', 'link_da_proposta', 'pipeline', 'dealstage', 'amount', 'deal_currency_code', 'solucao', 'hubspot_owner_id', 'createdate', 'hs_lastmodifieddate']
-    );
-    const deal = dealSearch?.results?.[0] || null;
+
+    let deal = null;
+    let dealLookupStatus = 'success';
+    let dealLookupError = null;
+    try {
+      const dealSearch = await hubspotSearchExact(
+        'deals',
+        'numero_da_proposta',
+        numero,
+        ['dealname', 'numero_da_proposta', 'link_da_proposta', 'pipeline', 'dealstage', 'amount', 'deal_currency_code', 'solucao', 'hubspot_owner_id', 'createdate', 'hs_lastmodifieddate']
+      );
+      deal = dealSearch?.results?.[0] || null;
+    } catch (err) {
+      dealLookupStatus = 'error';
+      dealLookupError = diagnosticError(err);
+    }
 
     let company = null;
     let companyCandidates = [];
-    if (identity.domain) {
-      const companySearch = await hubspotSearchExact('companies', 'domain', identity.domain, ['name', 'domain', 'website', 'hubspot_owner_id']);
-      companyCandidates = companySearch?.results || [];
-      company = companyCandidates[0] || null;
-    }
-    if (!company && identity.company_name) {
-      const companySearch = await hubspotSearchQuery('companies', identity.company_name, ['name', 'domain', 'website', 'hubspot_owner_id']);
-      companyCandidates = companySearch?.results || [];
-      company = companyCandidates.find(item => normalizeText(item?.properties?.name) === normalizeText(identity.company_name)) || companyCandidates[0] || null;
+    let companyLookupStatus = 'skipped';
+    let companyLookupError = null;
+    if (identity.domain || identity.company_name) {
+      companyLookupStatus = 'success';
+      try {
+        if (identity.domain) {
+          const companySearch = await hubspotSearchExact('companies', 'domain', identity.domain, ['name', 'domain', 'website', 'hubspot_owner_id']);
+          companyCandidates = companySearch?.results || [];
+          company = companyCandidates[0] || null;
+        }
+        if (!company && identity.company_name) {
+          const companySearch = await hubspotSearchQuery('companies', identity.company_name, ['name', 'domain', 'website', 'hubspot_owner_id']);
+          companyCandidates = companySearch?.results || [];
+          company = companyCandidates.find(item => normalizeText(item?.properties?.name) === normalizeText(identity.company_name)) || companyCandidates[0] || null;
+        }
+      } catch (err) {
+        companyLookupStatus = 'error';
+        companyLookupError = diagnosticError(err);
+      }
     }
 
     let contacts = [];
-    if (company?.id) contacts = await getAssociatedContacts(company.id);
+    let contactsLookupStatus = company?.id ? 'success' : 'skipped';
+    let contactsLookupError = null;
+    if (company?.id) {
+      try {
+        contacts = await getAssociatedContacts(company.id);
+      } catch (err) {
+        contactsLookupStatus = 'error';
+        contactsLookupError = diagnosticError(err);
+      }
+    }
 
     let emails = [];
-    if (deal?.id) emails = await getAssociatedEmails(deal.id);
+    let emailLookupStatus = deal?.id ? 'success' : 'skipped';
+    let emailLookupError = null;
+    if (deal?.id) {
+      try {
+        emails = await getAssociatedEmails(deal.id);
+      } catch (err) {
+        emailLookupStatus = 'error';
+        emailLookupError = diagnosticError(err);
+      }
+    }
 
     const rules = loadProposalRules();
     const currentPipeline = deal?.properties?.pipeline || null;
     const currentStage = deal?.properties?.dealstage || null;
+    const partial = [dealLookupStatus, companyLookupStatus, contactsLookupStatus, emailLookupStatus].includes('error');
 
     res.json({
-      status: 'success',
+      status: partial ? 'partial_success' : 'success',
       numero_proposta: numero,
       source_of_truth: {
         proposal: 'ERP Betel',
@@ -380,22 +438,32 @@ app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
       erp: {
         found: true,
         internal_id: internalId ? String(internalId) : null,
+        detail_lookup_status: erpDetailStatus,
+        detail_lookup_error: erpDetailError,
         identity,
         proposal: erpDetail
       },
       hubspot: {
-        deal_found: Boolean(deal),
+        deal_lookup_status: dealLookupStatus,
+        deal_lookup_error: dealLookupError,
+        deal_found: dealLookupStatus === 'success' ? Boolean(deal) : null,
         deal,
         deal_stage_label: deal ? stageLabel(currentStage, currentPipeline, rules) : null,
-        company_found: Boolean(company),
+        company_lookup_status: companyLookupStatus,
+        company_lookup_error: companyLookupError,
+        company_found: companyLookupStatus === 'success' ? Boolean(company) : null,
         company,
         company_candidates: companyCandidates,
+        contacts_lookup_status: contactsLookupStatus,
+        contacts_lookup_error: contactsLookupError,
         contacts,
+        email_lookup_status: emailLookupStatus,
+        email_lookup_error: emailLookupError,
         email_history: emails,
         last_email: emails[0] || null
       },
       commercial: {
-        next_action: recommendedAction(deal, emails, rules),
+        next_action: recommendedAction(deal, emails, rules, dealLookupStatus),
         workflow: rules.workflow || null
       }
     });
