@@ -159,6 +159,16 @@ app.post('/erp/orcamentos', async (req, res) => {
   catch (err) { handleError(err, res); }
 });
 
+app.get('/erp/recebimentos', async (req, res) => {
+  try { res.json(await betelRequest('/recebimentos', { query: req.query })); }
+  catch (err) { handleError(err, res); }
+});
+
+app.get('/erp/recebimentos/:id', async (req, res) => {
+  try { res.json(await betelRequest(`/recebimentos/${encodeURIComponent(req.params.id)}`)); }
+  catch (err) { handleError(err, res); }
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Seta ERP Connector listening on 0.0.0.0:${PORT}`);
 });
