@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Seta Telecom ERP Connector",
-    "version": "1.0.0-json",
+    "version": "1.0.1-json",
     "description": "Conector seguro entre ChatGPT Actions e a API Betel Tecnologia."
   },
   "servers": [
@@ -176,6 +176,7 @@
     }
   },
   "components": {
+    "schemas": {},
     "securitySchemes": {
       "bearerAuth": {
         "type": "http",
