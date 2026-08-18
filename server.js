@@ -102,17 +102,26 @@ function handleError(err, res) {
   console.error(err);
   if (err.status) {
     return res.status(err.status).json({
-      error: 'betel_api_error',
+      error: err.status >= 500 ? 'betel_api_error' : 'request_error',
       status: err.status,
+      message: err.message,
       details: err.data
     });
   }
   return res.status(500).json({ error: 'connector_error', message: err.message });
 }
 
-function loadBillingRules() {
-  const fileUrl = new URL('./billing-rules.json', import.meta.url);
+function loadJsonFile(name) {
+  const fileUrl = new URL(`./${name}`, import.meta.url);
   return JSON.parse(fs.readFileSync(fileUrl, 'utf8'));
+}
+
+function loadBillingRules() {
+  return loadJsonFile('billing-rules.json');
+}
+
+function loadProposalRules() {
+  return loadJsonFile('proposal-rules.json');
 }
 
 function normalizeText(value) {
@@ -133,6 +142,98 @@ function findBillingRule({ cliente, cliente_id }) {
     const names = [rule.cliente_nome, ...(rule.aliases || [])].map(normalizeText);
     return normalizedClient && names.some(name => name === normalizedClient || normalizedClient.includes(name) || name.includes(normalizedClient));
   });
+}
+
+function requestError(message, details = {}) {
+  const err = new Error(message);
+  err.status = 400;
+  err.data = details;
+  return err;
+}
+
+function parseMoney(value, fieldName) {
+  if (value === undefined || value === null || value === '') return 0;
+  const normalized = String(value).trim().replace(/\s/g, '').replace(',', '.');
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) throw requestError(`${fieldName} deve ser numerico`, { field: fieldName, value });
+  return parsed;
+}
+
+function proposalTotal(products) {
+  if (!Array.isArray(products) || products.length === 0) {
+    throw requestError('produtos deve conter pelo menos um item', { field: 'produtos' });
+  }
+
+  return products.reduce((total, item, index) => {
+    const product = item?.produto || {};
+    const quantity = parseMoney(product.quantidade ?? 1, `produtos[${index}].produto.quantidade`);
+    const unitPrice = parseMoney(product.valor_venda, `produtos[${index}].produto.valor_venda`);
+    return total + quantity * unitPrice;
+  }, 0);
+}
+
+function formatProposalMoney(value, currency) {
+  const number = Number(value || 0);
+  if (currency === 'USD') return `US$ ${number.toFixed(2)}`;
+  return `R$ ${number.toFixed(2)}`;
+}
+
+function buildProposalIntroduction(body) {
+  const rules = loadProposalRules();
+  const typeKey = normalizeText(body.tipo_proposta);
+  const typeRule = rules.types?.[typeKey];
+
+  if (!typeRule) {
+    throw requestError('tipo_proposta invalido', {
+      field: 'tipo_proposta',
+      allowed: Object.keys(rules.types || {})
+    });
+  }
+
+  const solution = String(body.solucao || '').trim();
+  if (!solution) throw requestError('solucao e obrigatoria', { field: 'solucao' });
+
+  let months = null;
+  if (typeRule.requires_months) {
+    months = Number(body.meses);
+    if (!Number.isInteger(months) || months <= 0) {
+      throw requestError('meses deve ser um inteiro maior que zero para este tipo de proposta', { field: 'meses' });
+    }
+  }
+
+  const currency = String(body.moeda || rules.currency_default || 'BRL').trim().toUpperCase();
+  if (!['BRL', 'USD'].includes(currency)) {
+    throw requestError('moeda invalida', { field: 'moeda', allowed: ['BRL', 'USD'] });
+  }
+
+  const total = proposalTotal(body.produtos);
+  const formattedValue = formatProposalMoney(total, currency);
+  let pattern;
+
+  if (typeKey === 'compra') {
+    pattern = currency === 'USD' ? typeRule.introduction_pattern_usd : typeRule.introduction_pattern_brl;
+  } else {
+    pattern = typeRule.introduction_pattern;
+  }
+
+  const introduction = String(pattern || typeRule.label)
+    .replaceAll('{meses}', String(months ?? ''))
+    .replaceAll('{valor_formatado}', formattedValue);
+
+  return {
+    introduction,
+    metadata: {
+      tipo_proposta: typeKey,
+      tipo_proposta_label: typeRule.label,
+      solucao: solution,
+      meses: months,
+      moeda: currency,
+      valor_calculado: Number(total.toFixed(2)),
+      hubspot_pipeline: typeRule.hubspot_pipeline,
+      hubspot_stage_aguardando_proposta: typeRule.hubspot_stage_aguardando_proposta,
+      hubspot_stage_proposta_enviada: typeRule.hubspot_stage_proposta_enviada
+    }
+  };
 }
 
 function parseIsoDate(value, fieldName) {
@@ -216,8 +317,25 @@ app.get('/erp/orcamentos/:id', async (req, res) => {
 });
 
 app.post('/erp/orcamentos', async (req, res) => {
-  try { res.json(await betelRequest('/orcamentos', { method: 'POST', body: req.body })); }
-  catch (err) { handleError(err, res); }
+  try {
+    const { introduction, metadata } = buildProposalIntroduction(req.body || {});
+    const {
+      tipo_proposta,
+      solucao,
+      meses,
+      moeda,
+      ...betelBody
+    } = req.body || {};
+
+    betelBody.introducao = introduction;
+    const result = await betelRequest('/orcamentos', { method: 'POST', body: betelBody });
+    return res.json({
+      status: 'success',
+      proposal: result,
+      commercial: metadata,
+      introducao_enviada: introduction
+    });
+  } catch (err) { handleError(err, res); }
 });
 
 app.get('/erp/recebimentos', async (req, res) => {
