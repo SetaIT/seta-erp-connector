@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Seta Telecom ERP Connector",
-    "version": "1.0.4-json",
+    "version": "1.0.5-json",
     "description": "Conector seguro entre ChatGPT Actions e a API Betel Tecnologia."
   },
   "servers": [
@@ -257,6 +257,49 @@
           {"name": "nome", "in": "query", "schema": {"type": "string"}}
         ],
         "responses": {"200": {"description": "Contas bancarias encontradas"}}
+      }
+    },
+    "/erp/regras-faturamento": {
+      "get": {
+        "operationId": "buscarRegraFaturamento",
+        "summary": "Busca a regra de faturamento cadastrada para um cliente",
+        "description": "Use antes de calcular vencimento ou gerar fatura. Se nao houver regra, nao invente parametros; solicite configuracao do cliente.",
+        "parameters": [
+          {"name": "cliente", "in": "query", "schema": {"type": "string"}},
+          {"name": "cliente_id", "in": "query", "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "Regra encontrada"},
+          "404": {"description": "Cliente sem regra de faturamento cadastrada"}
+        }
+      }
+    },
+    "/erp/regras-faturamento/calcular": {
+      "post": {
+        "operationId": "calcularVencimentoFatura",
+        "summary": "Calcula emissao e vencimento de uma nova fatura conforme a regra do cliente",
+        "description": "Para Veolia, usa vencimento da fatura anterior + 45 dias e ajusta para a primeira quarta-feira igual ou posterior. Data de emissao e a data da edicao.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["cliente", "vencimento_anterior", "data_edicao"],
+                "properties": {
+                  "cliente": {"type": "string"},
+                  "cliente_id": {"type": "string"},
+                  "vencimento_anterior": {"type": "string", "description": "YYYY-MM-DD"},
+                  "data_edicao": {"type": "string", "description": "YYYY-MM-DD; sera a data de emissao"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {"description": "Calculo realizado"},
+          "404": {"description": "Cliente sem regra de faturamento cadastrada"}
+        }
       }
     }
   },
