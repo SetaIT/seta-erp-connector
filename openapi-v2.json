@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Seta Telecom ERP Connector",
-    "version": "1.0.3-json",
+    "version": "1.0.4-json",
     "description": "Conector seguro entre ChatGPT Actions e a API Betel Tecnologia."
   },
   "servers": [
@@ -175,6 +175,45 @@
           {"name": "direcao", "in": "query", "schema": {"type": "string", "enum": ["asc", "desc"]}}
         ],
         "responses": {"200": {"description": "Recebimentos encontrados"}}
+      },
+      "post": {
+        "operationId": "criarRecebimento",
+        "summary": "Cria um recebimento ou recibo de locacao no ERP",
+        "description": "Antes de criar, localize cliente, plano de contas, forma de pagamento e conta bancaria corretos. Exija confirmacao do usuario antes de gravar.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["descricao", "data_vencimento", "plano_contas_id", "forma_pagamento_id", "conta_bancaria_id", "valor", "data_competencia"],
+                "properties": {
+                  "descricao": {"type": "string"},
+                  "data_vencimento": {"type": "string"},
+                  "valor": {"type": "number"},
+                  "juros": {"type": "number"},
+                  "desconto": {"type": "number"},
+                  "valor_total": {"type": "number"},
+                  "centro_custo_id": {"type": "integer"},
+                  "nome_centro_custo": {"type": "string"},
+                  "conta_bancaria_id": {"type": "integer"},
+                  "nome_conta_bancaria": {"type": "string"},
+                  "forma_pagamento_id": {"type": "integer"},
+                  "nome_forma_pagamento": {"type": "string"},
+                  "entidade": {"type": "string"},
+                  "cliente_id": {"type": "integer"},
+                  "nome_cliente": {"type": "string"},
+                  "liquidado": {"type": "string"},
+                  "data_liquidacao": {"type": "string"},
+                  "data_competencia": {"type": "string"},
+                  "plano_contas_id": {"type": "integer"},
+                  "nome_plano_conta": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {"200": {"description": "Recebimento criado"}}
       }
     },
     "/erp/recebimentos/{id}": {
@@ -185,6 +224,39 @@
           {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
         ],
         "responses": {"200": {"description": "Recebimento encontrado"}}
+      }
+    },
+    "/erp/planos-contas": {
+      "get": {
+        "operationId": "buscarPlanosContas",
+        "summary": "Busca planos de contas do ERP",
+        "parameters": [
+          {"name": "pagina", "in": "query", "schema": {"type": "integer", "default": 1}},
+          {"name": "nome", "in": "query", "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "Planos de contas encontrados"}}
+      }
+    },
+    "/erp/formas-pagamentos": {
+      "get": {
+        "operationId": "buscarFormasPagamentos",
+        "summary": "Busca formas de pagamento do ERP",
+        "parameters": [
+          {"name": "pagina", "in": "query", "schema": {"type": "integer", "default": 1}},
+          {"name": "nome", "in": "query", "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "Formas de pagamento encontradas"}}
+      }
+    },
+    "/erp/contas-bancarias": {
+      "get": {
+        "operationId": "buscarContasBancarias",
+        "summary": "Busca contas bancarias do ERP",
+        "parameters": [
+          {"name": "pagina", "in": "query", "schema": {"type": "integer", "default": 1}},
+          {"name": "nome", "in": "query", "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "Contas bancarias encontradas"}}
       }
     }
   },
