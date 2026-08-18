@@ -10,6 +10,7 @@ const INTERNAL_PORT = Number(process.env.INTERNAL_CONNECTOR_PORT || 3001);
 const CONNECTOR_API_KEY = process.env.CONNECTOR_API_KEY;
 const HUBSPOT_BASE_URL = process.env.HUBSPOT_BASE_URL || 'https://api.hubapi.com';
 const HUBSPOT_ACCESS_TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
+const PROPOSAL_PUBLIC_BASE_URL = String(process.env.PROPOSAL_PUBLIC_BASE_URL || 'https://app.setatelecom.com.br/prop').replace(/\/$/, '');
 
 function auth(req, res, next) {
   if (!CONNECTOR_API_KEY) return res.status(503).json({ error: 'connector_not_configured', missing: ['CONNECTOR_API_KEY'] });
@@ -195,6 +196,22 @@ function proposalIdentity(proposal) {
   };
 }
 
+function proposalPublicLink(proposal, summary = null) {
+  const sources = [proposal, summary, proposal?.orcamento, proposal?.proposta, summary?.orcamento, summary?.proposta];
+  const explicitLink = firstValue(sources, ['public_link', 'link_proposta', 'url_proposta', 'link', 'url']);
+  if (explicitLink && /^https?:\/\//i.test(String(explicitLink).trim())) {
+    return { hash: null, public_link: String(explicitLink).trim(), source: 'erp_explicit_link' };
+  }
+  const hash = firstValue(sources, ['hash', 'hash_publico', 'public_hash']);
+  if (!hash) return { hash: null, public_link: null, source: null };
+  const normalizedHash = String(hash).trim();
+  return {
+    hash: normalizedHash,
+    public_link: `${PROPOSAL_PUBLIC_BASE_URL}/${encodeURIComponent(normalizedHash)}`,
+    source: 'erp_hash'
+  };
+}
+
 async function hubspotSearchExact(objectType, propertyName, value, properties = []) {
   return hubspotRequest(`/crm/v3/objects/${objectType}/search`, {
     method: 'POST',
@@ -348,6 +365,7 @@ app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
     }
 
     const identity = proposalIdentity(erpDetail);
+    const proposalLink = proposalPublicLink(erpDetail, summary);
     let deal = null;
     let dealLookupStatus = 'success';
     let dealLookupError = null;
@@ -407,7 +425,17 @@ app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
       status: partial ? 'partial_success' : 'success',
       numero_proposta: numero,
       source_of_truth: { proposal: 'ERP Betel', crm: 'HubSpot', email_history: 'HubSpot EMAIL engagements registered after Outlook send' },
-      erp: { found: true, internal_id: internalId ? String(internalId) : null, detail_lookup_status: erpDetailStatus, detail_lookup_error: erpDetailError, identity, proposal: erpDetail },
+      erp: {
+        found: true,
+        internal_id: internalId ? String(internalId) : null,
+        detail_lookup_status: erpDetailStatus,
+        detail_lookup_error: erpDetailError,
+        identity,
+        proposal_hash: proposalLink.hash,
+        public_link: proposalLink.public_link,
+        public_link_source: proposalLink.source,
+        proposal: erpDetail
+      },
       hubspot: {
         deal_lookup_status: dealLookupStatus,
         deal_lookup_error: dealLookupError,
