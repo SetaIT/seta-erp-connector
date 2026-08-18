@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "currency_default": "BRL",
+  "deal_name_pattern": "{numero_proposta} - {empresa} - {solucao}",
+  "types": {
+    "locacao": {
+      "label": "Proposta de Locação",
+      "requires_months": true,
+      "introduction_pattern": "Proposta de Locação - {meses} meses\nValor mensal: {valor_formatado}/mês",
+      "hubspot_pipeline": "9501279",
+      "hubspot_stage_aguardando_proposta": "9501282",
+      "hubspot_stage_proposta_enviada": "9501283"
+    },
+    "compra": {
+      "label": "Proposta de Compra",
+      "requires_months": false,
+      "currency_required_when_usd": true,
+      "introduction_pattern_brl": "Proposta de Compra\nValor total: {valor_formatado}",
+      "introduction_pattern_usd": "Proposta de Compra - USD\nValor total: {valor_formatado}",
+      "hubspot_pipeline": "default",
+      "hubspot_stage_aguardando_proposta": "20205433",
+      "hubspot_stage_proposta_enviada": "qualifiedtobuy"
+    },
+    "spareparts": {
+      "label": "Proposta de SpareParts",
+      "requires_months": true,
+      "introduction_pattern": "Proposta de SpareParts - {meses} meses\nValor mensal: {valor_formatado}/mês",
+      "hubspot_pipeline": "9501279",
+      "hubspot_stage_aguardando_proposta": "9501282",
+      "hubspot_stage_proposta_enviada": "9501283"
+    }
+  },
+  "workflow": {
+    "require_proposal_type_before_create": true,
+    "require_solution_before_create": true,
+    "require_explicit_confirmation_before_erp_write": true,
+    "check_deal_duplicate_by_numero_da_proposta": true,
+    "company_lookup_key_hubspot": "domain",
+    "deal_number_property": "numero_da_proposta",
+    "deal_link_property": "link_da_proposta",
+    "deal_currency_property": "deal_currency_code",
+    "deal_amount_property": "amount"
+  }
+}
