@@ -1,0 +1,528 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Agente de Propostas Seta Telecom",
+    "version": "2.0.2",
+    "description": "Action unica do Agente de Propostas para ERP Betel, HubSpot e registro do fluxo comercial."
+  },
+  "servers": [
+    {"url": "https://seta-erp-connector-production-1255.up.railway.app"}
+  ],
+  "security": [
+    {"bearerAuth": []}
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "verificarSaudeAgentePropostas",
+        "summary": "Verifica o backend unificado",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Servico ativo",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/GenericResponse"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/erp/propostas/{numero}/contexto": {
+      "get": {
+        "operationId": "consultarContextoCompletoProposta",
+        "summary": "Consulta proposta e contexto comercial completo",
+        "description": "Use primeiro quando o usuario informar um numero de proposta existente. Consulta ERP e contexto relacionado no HubSpot sem realizar gravacoes.",
+        "parameters": [
+          {
+            "name": "numero",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string", "pattern": "^[0-9]+$"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contexto completo",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/GenericResponse"}
+              }
+            }
+          },
+          "404": {"description": "Proposta nao encontrada"}
+        }
+      }
+    },
+    "/erp/clientes": {
+      "get": {
+        "operationId": "buscarClientes",
+        "summary": "Busca clientes no ERP",
+        "parameters": [
+          {"name": "pagina", "in": "query", "schema": {"type": "integer", "default": 1}},
+          {"name": "nome", "in": "query", "schema": {"type": "string"}},
+          {"name": "cnpj", "in": "query", "schema": {"type": "string"}},
+          {"name": "email", "in": "query", "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Clientes encontrados",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          }
+        }
+      },
+      "post": {
+        "operationId": "criarCliente",
+        "summary": "Cria cliente no ERP",
+        "description": "Exija confirmacao explicita do usuario imediatamente antes da gravacao.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/ClienteInput"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cliente criado",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          }
+        }
+      }
+    },
+    "/erp/produtos": {
+      "get": {
+        "operationId": "buscarProdutos",
+        "summary": "Busca produtos no ERP",
+        "parameters": [
+          {"name": "pagina", "in": "query", "schema": {"type": "integer", "default": 1}},
+          {"name": "nome", "in": "query", "schema": {"type": "string"}},
+          {"name": "codigo_interno", "in": "query", "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Produtos encontrados",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          }
+        }
+      }
+    },
+    "/erp/usuarios": {
+      "get": {
+        "operationId": "buscarUsuarios",
+        "summary": "Busca vendedores e usuarios do ERP",
+        "parameters": [
+          {"name": "pagina", "in": "query", "schema": {"type": "integer", "default": 1}},
+          {"name": "nome", "in": "query", "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Usuarios encontrados",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          }
+        }
+      }
+    },
+    "/erp/situacoes-orcamentos": {
+      "get": {
+        "operationId": "buscarSituacoesOrcamento",
+        "summary": "Lista situacoes de propostas no ERP",
+        "responses": {
+          "200": {
+            "description": "Situacoes encontradas",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          }
+        }
+      }
+    },
+    "/erp/orcamentos": {
+      "get": {
+        "operationId": "buscarOrcamentos",
+        "summary": "Busca propostas no ERP",
+        "parameters": [
+          {"name": "pagina", "in": "query", "schema": {"type": "integer", "default": 1}},
+          {"name": "codigo", "in": "query", "schema": {"type": "integer"}},
+          {"name": "cliente_id", "in": "query", "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Propostas encontradas",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          }
+        }
+      },
+      "post": {
+        "operationId": "criarOrcamento",
+        "summary": "Cria proposta no ERP",
+        "description": "Antes de criar, confirme cliente, tipo, solucao, produtos, quantidades, valores, meses quando aplicavel, moeda, vendedor e validade. Exija confirmacao explicita imediatamente antes da gravacao.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/OrcamentoInput"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Proposta criada",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          },
+          "400": {"description": "Dados invalidos"}
+        }
+      }
+    },
+    "/erp/orcamentos/{id}": {
+      "get": {
+        "operationId": "consultarOrcamento",
+        "summary": "Consulta proposta pelo ID interno do ERP",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Proposta encontrada",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          }
+        }
+      }
+    },
+    "/erp/hubspot/configuracao-proposta": {
+      "get": {
+        "operationId": "buscarConfiguracaoComercialHubSpot",
+        "summary": "Retorna regras comerciais e pipelines",
+        "responses": {
+          "200": {
+            "description": "Configuracao comercial",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          }
+        }
+      }
+    },
+    "/erp/hubspot/empresas": {
+      "get": {
+        "operationId": "buscarEmpresaHubSpot",
+        "summary": "Busca empresa no HubSpot pelo dominio",
+        "parameters": [
+          {"name": "domain", "in": "query", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Empresa encontrada ou busca vazia",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          }
+        }
+      }
+    },
+    "/erp/hubspot/empresas/{id}/contatos": {
+      "get": {
+        "operationId": "buscarContatosDaEmpresaHubSpot",
+        "summary": "Lista contatos associados a uma empresa",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Contatos associados",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          }
+        }
+      }
+    },
+    "/erp/hubspot/contatos": {
+      "get": {
+        "operationId": "buscarContatoHubSpot",
+        "summary": "Busca contato no HubSpot por e-mail",
+        "parameters": [
+          {"name": "email", "in": "query", "required": true, "schema": {"type": "string", "format": "email"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Contato encontrado ou busca vazia",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          }
+        }
+      }
+    },
+    "/erp/hubspot/negocios": {
+      "get": {
+        "operationId": "buscarNegocioPorProposta",
+        "summary": "Verifica duplicidade de Deal pelo numero da proposta",
+        "parameters": [
+          {"name": "numero_proposta", "in": "query", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Resultado da busca",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          }
+        }
+      }
+    },
+    "/erp/hubspot/negocios-da-proposta": {
+      "post": {
+        "operationId": "criarNegocioHubSpotDaProposta",
+        "summary": "Cria Deal no HubSpot a partir da proposta",
+        "description": "Verifique duplicidade, empresa e contatos e obtenha confirmacao explicita antes da gravacao.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/DealInput"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deal criado",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          },
+          "409": {"description": "Deal duplicado"}
+        }
+      }
+    },
+    "/erp/hubspot/emails/registrar-envio": {
+      "post": {
+        "operationId": "registrarEmailEnviadoHubSpot",
+        "summary": "Registra no HubSpot um e-mail realmente enviado",
+        "description": "Execute somente depois de o envio real pelo Outlook ter sido confirmado.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/EmailEnviadoInput"}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "E-mail registrado",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          }
+        }
+      }
+    },
+    "/erp/hubspot/negocios/{id}/marcar-proposta-enviada": {
+      "post": {
+        "operationId": "marcarPropostaEnviadaHubSpot",
+        "summary": "Move Deal para Proposta Enviada",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/PropostaEnviadaInput"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deal atualizado",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          }
+        }
+      }
+    },
+    "/erp/hubspot/negocios/{id}/marcar-ganho": {
+      "post": {
+        "operationId": "marcarNegocioGanhoHubSpot",
+        "summary": "Marca Deal como Ganho com um ou varios motivos",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/GanhoInput"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deal marcado como Ganho",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
+          },
+          "400": {"description": "Confirmacao, motivo ou pipeline invalido"}
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "GenericResponse": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "ClienteInput": {
+        "type": "object",
+        "required": ["tipo_pessoa", "nome"],
+        "properties": {
+          "tipo_pessoa": {"type": "string", "enum": ["PF", "PJ", "ES"]},
+          "nome": {"type": "string"},
+          "razao_social": {"type": "string"},
+          "cnpj": {"type": "string"},
+          "cpf": {"type": "string"},
+          "email": {"type": "string", "format": "email"},
+          "telefone": {"type": "string"},
+          "celular": {"type": "string"},
+          "usuario_id": {"type": "string"},
+          "loja_id": {"type": "string"}
+        }
+      },
+      "ProdutoOrcamento": {
+        "type": "object",
+        "required": ["produto"],
+        "properties": {
+          "produto": {
+            "type": "object",
+            "required": ["id", "quantidade", "valor_venda"],
+            "properties": {
+              "id": {"type": "string"},
+              "variacao_id": {"type": "string"},
+              "quantidade": {"type": "string"},
+              "valor_venda": {"type": "string"},
+              "tipo_valor_id": {"type": "string"}
+            }
+          }
+        }
+      },
+      "OrcamentoInput": {
+        "type": "object",
+        "required": ["tipo", "codigo", "cliente_id", "data", "situacao_id", "tipo_proposta", "solucao", "produtos"],
+        "properties": {
+          "tipo": {"type": "string"},
+          "codigo": {"type": "integer"},
+          "cliente_id": {"type": "string"},
+          "vendedor_id": {"type": "string"},
+          "data": {"type": "string"},
+          "situacao_id": {"type": "string"},
+          "validade": {"type": "string"},
+          "tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]},
+          "solucao": {"type": "string"},
+          "meses": {"type": "integer", "minimum": 1},
+          "moeda": {"type": "string", "enum": ["BRL", "USD"], "default": "BRL"},
+          "introducao": {"type": "string"},
+          "observacoes": {"type": "string"},
+          "observacoes_interna": {"type": "string"},
+          "valor_frete": {"type": "number"},
+          "desconto_valor": {"type": "string"},
+          "desconto_porcentagem": {"type": "string"},
+          "produtos": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"$ref": "#/components/schemas/ProdutoOrcamento"}
+          }
+        }
+      },
+      "ContatoInput": {
+        "type": "object",
+        "required": ["email"],
+        "properties": {
+          "email": {"type": "string", "format": "email"},
+          "nome": {"type": "string"},
+          "sobrenome": {"type": "string"}
+        }
+      },
+      "DealInput": {
+        "type": "object",
+        "required": ["numero_proposta", "empresa", "domain", "solucao", "link_proposta", "tipo_proposta"],
+        "properties": {
+          "numero_proposta": {"type": "string"},
+          "empresa": {"type": "string"},
+          "domain": {"type": "string"},
+          "solucao": {"type": "string"},
+          "link_proposta": {"type": "string"},
+          "tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]},
+          "valor_mensal": {"type": "number"},
+          "meses": {"type": "integer", "minimum": 1},
+          "valor_negocio": {"type": "number"},
+          "moeda": {"type": "string", "enum": ["BRL", "USD"], "default": "BRL"},
+          "contatos": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ContatoInput"}
+          },
+          "hubspot_owner_id": {"type": "string"}
+        }
+      },
+      "EmailPessoa": {
+        "type": "object",
+        "required": ["email"],
+        "properties": {
+          "email": {"type": "string", "format": "email"},
+          "firstName": {"type": "string"},
+          "lastName": {"type": "string"}
+        }
+      },
+      "EmailEnviadoInput": {
+        "type": "object",
+        "required": ["envio_confirmado", "remetente", "destinatarios", "assunto", "texto"],
+        "properties": {
+          "envio_confirmado": {"type": "boolean", "enum": [true]},
+          "remetente": {"$ref": "#/components/schemas/EmailPessoa"},
+          "destinatarios": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "items": {"$ref": "#/components/schemas/EmailPessoa"}
+          },
+          "cc": {"type": "array", "items": {"$ref": "#/components/schemas/EmailPessoa"}},
+          "bcc": {"type": "array", "items": {"$ref": "#/components/schemas/EmailPessoa"}},
+          "assunto": {"type": "string"},
+          "texto": {"type": "string"},
+          "enviado_em": {"type": "string", "format": "date-time"},
+          "outlook_message_id": {"type": "string"},
+          "hubspot_owner_id": {"type": "string"},
+          "deal_id": {"type": "string"},
+          "company_id": {"type": "string"},
+          "contact_ids": {"type": "array", "items": {"type": "string"}},
+          "atualizar_etapa": {"type": "boolean", "default": false},
+          "tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]}
+        }
+      },
+      "PropostaEnviadaInput": {
+        "type": "object",
+        "required": ["tipo_proposta", "envio_confirmado"],
+        "properties": {
+          "tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]},
+          "envio_confirmado": {"type": "boolean", "enum": [true]},
+          "solucao": {"type": "string"}
+        }
+      },
+      "GanhoInput": {
+        "type": "object",
+        "required": ["tipo_proposta", "motivos_ganho", "confirmacao_ganho"],
+        "properties": {
+          "tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]},
+          "motivos_ganho": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "Nossa Solução foi a Melhor",
+                "Disponibilidade",
+                "Prazo de Entrega",
+                "Relacionamento",
+                "Preço"
+              ]
+            }
+          },
+          "confirmacao_ganho": {"type": "boolean", "enum": [true]}
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Bearer"
+      }
+    }
+  }
+}
