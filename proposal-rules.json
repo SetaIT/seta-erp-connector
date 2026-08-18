@@ -1,11 +1,12 @@
 {
-  "version": 1,
+  "version": 2,
   "currency_default": "BRL",
   "deal_name_pattern": "{numero_proposta} - {empresa} - {solucao}",
   "types": {
     "locacao": {
       "label": "Proposta de Locação",
       "requires_months": true,
+      "deal_amount_rule": "monthly_value_times_months",
       "introduction_pattern": "Proposta de Locação - {meses} meses\nValor mensal: {valor_formatado}/mês",
       "hubspot_pipeline": "9501279",
       "hubspot_stage_aguardando_proposta": "9501282",
@@ -14,6 +15,7 @@
     "compra": {
       "label": "Proposta de Compra",
       "requires_months": false,
+      "deal_amount_rule": "proposal_total",
       "currency_required_when_usd": true,
       "introduction_pattern_brl": "Proposta de Compra\nValor total: {valor_formatado}",
       "introduction_pattern_usd": "Proposta de Compra - USD\nValor total: {valor_formatado}",
@@ -24,20 +26,33 @@
     "spareparts": {
       "label": "Proposta de SpareParts",
       "requires_months": true,
+      "deal_amount_rule": "explicit_value_until_confirmed",
       "introduction_pattern": "Proposta de SpareParts - {meses} meses\nValor mensal: {valor_formatado}/mês",
       "hubspot_pipeline": "9501279",
       "hubspot_stage_aguardando_proposta": "9501282",
       "hubspot_stage_proposta_enviada": "9501283"
     }
   },
+  "email": {
+    "template_name": "Envio de Proposta - Ago 2025",
+    "channel": "hubspot_connected_inbox",
+    "mailbox_provider": "Outlook",
+    "sales_template_send_api_supported": false,
+    "move_stage_only_after_confirmed_send": true,
+    "salutation_single_recipient": "first_name",
+    "salutation_multiple_recipients": "neutral"
+  },
   "workflow": {
     "require_proposal_type_before_create": true,
     "require_solution_before_create": true,
     "require_explicit_confirmation_before_erp_write": true,
+    "require_explicit_confirmation_before_hubspot_write": true,
     "check_deal_duplicate_by_numero_da_proposta": true,
     "company_lookup_key_hubspot": "domain",
+    "associate_all_selected_contacts_to_deal": true,
     "deal_number_property": "numero_da_proposta",
     "deal_link_property": "link_da_proposta",
+    "deal_solution_property": "solucao",
     "deal_currency_property": "deal_currency_code",
     "deal_amount_property": "amount"
   }
