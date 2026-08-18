@@ -212,6 +212,68 @@ app.post('/erp/hubspot/emails/registrar-envio', auth, async (req, res) => {
   }
 });
 
+app.post('/erp/hubspot/negocios/:id/marcar-ganho', auth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.confirmacao_ganho !== true) {
+      throw requestError('confirmacao_ganho deve ser true. O negocio so pode ser marcado como ganho apos confirmacao explicita do usuario.', { field: 'confirmacao_ganho' });
+    }
+
+    const tipo = String(body.tipo_proposta || '').trim().toLowerCase();
+    const motivo = String(body.motivo_ganho || '').trim();
+    const rules = loadProposalRules();
+    const typeRule = rules.types?.[tipo];
+    if (!typeRule) throw requestError('tipo_proposta invalido', { field: 'tipo_proposta', allowed: Object.keys(rules.types || {}) });
+    if (!typeRule.hubspot_stage_ganho) throw requestError('Etapa Ganho nao configurada para este tipo de proposta', { field: 'tipo_proposta' });
+
+    const wonRules = rules.deal_won || {};
+    const allowedReasons = wonRules.allowed_reasons || [];
+    if (!motivo) throw requestError('motivo_ganho e obrigatorio', { field: 'motivo_ganho', allowed: allowedReasons });
+    if (!allowedReasons.includes(motivo)) {
+      throw requestError('motivo_ganho invalido', { field: 'motivo_ganho', allowed: allowedReasons });
+    }
+
+    const dealId = String(req.params.id || '').trim();
+    const currentDeal = await hubspotRequest(`/crm/v3/objects/deals/${encodeURIComponent(dealId)}?properties=dealname,pipeline,dealstage,numero_da_proposta`);
+    const currentPipeline = String(currentDeal?.properties?.pipeline || '');
+    if (currentPipeline !== String(typeRule.hubspot_pipeline)) {
+      throw requestError('O pipeline atual do negocio nao corresponde ao tipo_proposta informado. Nenhuma alteracao foi feita.', {
+        deal_id: dealId,
+        current_pipeline: currentPipeline,
+        expected_pipeline: typeRule.hubspot_pipeline,
+        tipo_proposta: tipo
+      });
+    }
+
+    const reasonProperty = wonRules.reason_property || 'descricao_motivo_ganho__clonado_';
+    const updatedDeal = await hubspotRequest(`/crm/v3/objects/deals/${encodeURIComponent(dealId)}`, {
+      method: 'PATCH',
+      body: {
+        properties: {
+          dealstage: String(typeRule.hubspot_stage_ganho),
+          [reasonProperty]: motivo
+        }
+      }
+    });
+
+    res.json({
+      status: 'success',
+      deal: updatedDeal,
+      deal_id: dealId,
+      deal_name: currentDeal?.properties?.dealname || null,
+      numero_proposta: currentDeal?.properties?.numero_da_proposta || null,
+      tipo_proposta: tipo,
+      pipeline: typeRule.hubspot_pipeline,
+      etapa_anterior: currentDeal?.properties?.dealstage || null,
+      etapa_ganho: typeRule.hubspot_stage_ganho,
+      motivo_ganho: motivo,
+      motivo_property: reasonProperty
+    });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
 async function proxyToLegacy(req, res) {
   try {
     const headers = {};
