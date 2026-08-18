@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "currency_default": "BRL",
   "deal_name_pattern": "{numero_proposta} - {empresa} - {solucao}",
   "types": {
@@ -45,19 +45,25 @@
       "Relacionamento",
       "Preço"
     ],
+    "allow_multiple_reasons": true,
+    "separator": ";",
     "require_reason": true,
     "require_explicit_confirmation": true
   },
   "email": {
     "template_name": "Envio de Proposta - Ago 2025",
-    "channel": "hubspot_connected_inbox",
-    "mailbox_provider": "Outlook",
+    "delivery_provider": "Outlook",
+    "delivery_orchestration": "railway_unified_backend",
+    "hubspot_activity_log": true,
     "sales_template_send_api_supported": false,
     "move_stage_only_after_confirmed_send": true,
     "salutation_single_recipient": "first_name",
     "salutation_multiple_recipients": "neutral"
   },
   "workflow": {
+    "backend": "seta-erp-connector",
+    "single_action": true,
+    "unified_context_endpoint": "/erp/propostas/{numero}/contexto",
     "require_proposal_type_before_create": true,
     "require_solution_before_create": true,
     "require_explicit_confirmation_before_erp_write": true,
@@ -69,6 +75,15 @@
     "deal_link_property": "link_da_proposta",
     "deal_solution_property": "solucao",
     "deal_currency_property": "deal_currency_code",
-    "deal_amount_property": "amount"
+    "deal_amount_property": "amount",
+    "lifecycle": [
+      "erp_proposal",
+      "hubspot_deal",
+      "proposal_email",
+      "followup_analysis",
+      "followup_email",
+      "won_or_lost",
+      "post_sale"
+    ]
   }
 }
