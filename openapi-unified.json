@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agente de Propostas Seta Telecom",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "description": "Action unica do Agente de Propostas. Orquestra ERP Betel, HubSpot e registro de e-mails do fluxo comercial, desde a criacao/consulta da proposta ate Proposta Enviada e Ganho. O GPT deve preferir a consulta de contexto unificado quando receber um numero de proposta existente."
   },
   "servers": [
@@ -308,8 +308,9 @@
     }
   },
   "components": {
+    "schemas": {},
     "securitySchemes": {
-      "bearerAuth": {"type": "http", "scheme": "bearer"}
+      "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "Bearer"}
     }
   }
 }
