@@ -9,6 +9,8 @@ const BETEL_BASE_URL = process.env.BETEL_BASE_URL || 'https://api.beteltecnologi
 const BETEL_ACCESS_TOKEN = process.env.BETEL_ACCESS_TOKEN;
 const BETEL_SECRET_ACCESS_TOKEN = process.env.BETEL_SECRET_ACCESS_TOKEN;
 const CONNECTOR_API_KEY = process.env.CONNECTOR_API_KEY;
+const HUBSPOT_BASE_URL = process.env.HUBSPOT_BASE_URL || 'https://api.hubapi.com';
+const HUBSPOT_ACCESS_TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
 
 function getMissingEnv() {
   const missing = [];
@@ -68,17 +70,15 @@ async function betelRequest(path, { method = 'GET', query, body } = {}) {
 
       const text = await response.text();
       let data;
-      try {
-        data = text ? JSON.parse(text) : null;
-      } catch {
-        data = { raw: text };
-      }
+      try { data = text ? JSON.parse(text) : null; }
+      catch { data = { raw: text }; }
 
       if (response.ok) return data;
 
       const err = new Error(`Betel API error ${response.status}`);
       err.status = response.status;
       err.data = data;
+      err.source = 'betel';
       lastError = err;
 
       if (method === 'GET' && response.status >= 500 && attempt < maxAttempts) {
@@ -98,11 +98,45 @@ async function betelRequest(path, { method = 'GET', query, body } = {}) {
   throw lastError;
 }
 
+async function hubspotRequest(path, { method = 'GET', body } = {}) {
+  if (!HUBSPOT_ACCESS_TOKEN) {
+    const err = new Error('HUBSPOT_ACCESS_TOKEN nao configurado');
+    err.status = 503;
+    err.source = 'hubspot';
+    err.data = { missing: ['HUBSPOT_ACCESS_TOKEN'] };
+    throw err;
+  }
+
+  const response = await fetch(`${HUBSPOT_BASE_URL}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${HUBSPOT_ACCESS_TOKEN}`,
+      Accept: 'application/json',
+      ...(body ? { 'Content-Type': 'application/json' } : {})
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  const text = await response.text();
+  let data;
+  try { data = text ? JSON.parse(text) : null; }
+  catch { data = { raw: text }; }
+
+  if (response.ok) return data;
+
+  const err = new Error(`HubSpot API error ${response.status}`);
+  err.status = response.status;
+  err.data = data;
+  err.source = 'hubspot';
+  throw err;
+}
+
 function handleError(err, res) {
   console.error(err);
   if (err.status) {
+    const source = err.source || 'request';
     return res.status(err.status).json({
-      error: err.status >= 500 ? 'betel_api_error' : 'request_error',
+      error: `${source}_error`,
       status: err.status,
       message: err.message,
       details: err.data
@@ -116,13 +150,8 @@ function loadJsonFile(name) {
   return JSON.parse(fs.readFileSync(fileUrl, 'utf8'));
 }
 
-function loadBillingRules() {
-  return loadJsonFile('billing-rules.json');
-}
-
-function loadProposalRules() {
-  return loadJsonFile('proposal-rules.json');
-}
+function loadBillingRules() { return loadJsonFile('billing-rules.json'); }
+function loadProposalRules() { return loadJsonFile('proposal-rules.json'); }
 
 function normalizeText(value) {
   return String(value || '')
@@ -135,7 +164,6 @@ function normalizeText(value) {
 function findBillingRule({ cliente, cliente_id }) {
   const rules = loadBillingRules().clients || [];
   const normalizedClient = normalizeText(cliente);
-
   return rules.find(rule => {
     if (!rule.ativo) return false;
     if (cliente_id && rule.cliente_erp_id && String(rule.cliente_erp_id) === String(cliente_id)) return true;
@@ -148,6 +176,7 @@ function requestError(message, details = {}) {
   const err = new Error(message);
   err.status = 400;
   err.data = details;
+  err.source = 'request';
   return err;
 }
 
@@ -163,7 +192,6 @@ function proposalTotal(products) {
   if (!Array.isArray(products) || products.length === 0) {
     throw requestError('produtos deve conter pelo menos um item', { field: 'produtos' });
   }
-
   return products.reduce((total, item, index) => {
     const product = item?.produto || {};
     const quantity = parseMoney(product.quantidade ?? 1, `produtos[${index}].produto.quantidade`);
@@ -178,18 +206,18 @@ function formatProposalMoney(value, currency) {
   return `R$ ${number.toFixed(2)}`;
 }
 
-function buildProposalIntroduction(body) {
+function getProposalTypeRule(typeKey) {
   const rules = loadProposalRules();
-  const typeKey = normalizeText(body.tipo_proposta);
-  const typeRule = rules.types?.[typeKey];
-
+  const normalized = normalizeText(typeKey);
+  const typeRule = rules.types?.[normalized];
   if (!typeRule) {
-    throw requestError('tipo_proposta invalido', {
-      field: 'tipo_proposta',
-      allowed: Object.keys(rules.types || {})
-    });
+    throw requestError('tipo_proposta invalido', { field: 'tipo_proposta', allowed: Object.keys(rules.types || {}) });
   }
+  return { rules, typeKey: normalized, typeRule };
+}
 
+function buildProposalIntroduction(body) {
+  const { rules, typeKey, typeRule } = getProposalTypeRule(body.tipo_proposta);
   const solution = String(body.solucao || '').trim();
   if (!solution) throw requestError('solucao e obrigatoria', { field: 'solucao' });
 
@@ -202,19 +230,13 @@ function buildProposalIntroduction(body) {
   }
 
   const currency = String(body.moeda || rules.currency_default || 'BRL').trim().toUpperCase();
-  if (!['BRL', 'USD'].includes(currency)) {
-    throw requestError('moeda invalida', { field: 'moeda', allowed: ['BRL', 'USD'] });
-  }
+  if (!['BRL', 'USD'].includes(currency)) throw requestError('moeda invalida', { field: 'moeda', allowed: ['BRL', 'USD'] });
 
   const total = proposalTotal(body.produtos);
   const formattedValue = formatProposalMoney(total, currency);
-  let pattern;
-
-  if (typeKey === 'compra') {
-    pattern = currency === 'USD' ? typeRule.introduction_pattern_usd : typeRule.introduction_pattern_brl;
-  } else {
-    pattern = typeRule.introduction_pattern;
-  }
+  const pattern = typeKey === 'compra'
+    ? (currency === 'USD' ? typeRule.introduction_pattern_usd : typeRule.introduction_pattern_brl)
+    : typeRule.introduction_pattern;
 
   const introduction = String(pattern || typeRule.label)
     .replaceAll('{meses}', String(months ?? ''))
@@ -236,11 +258,56 @@ function buildProposalIntroduction(body) {
   };
 }
 
+async function hubspotSearch(objectType, propertyName, value, properties = []) {
+  return hubspotRequest(`/crm/v3/objects/${objectType}/search`, {
+    method: 'POST',
+    body: {
+      filterGroups: [{ filters: [{ propertyName, operator: 'EQ', value: String(value) }] }],
+      properties,
+      limit: 10
+    }
+  });
+}
+
+async function hubspotCreate(objectType, properties) {
+  return hubspotRequest(`/crm/v3/objects/${objectType}`, { method: 'POST', body: { properties } });
+}
+
+async function hubspotAssociate(fromType, fromId, toType, toId) {
+  return hubspotRequest(`/crm/v4/objects/${fromType}/${encodeURIComponent(fromId)}/associations/default/${toType}/${encodeURIComponent(toId)}`, { method: 'PUT' });
+}
+
+async function findOrCreateCompany({ empresa, domain }) {
+  const search = await hubspotSearch('companies', 'domain', domain, ['name', 'domain', 'hubspot_owner_id']);
+  if (search.total > 0) return { record: search.results[0], created: false };
+  const created = await hubspotCreate('companies', { name: empresa, domain });
+  return { record: created, created: true };
+}
+
+async function findOrCreateContact({ email, firstname, lastname, companyId }) {
+  if (!email) return { record: null, created: false };
+  const search = await hubspotSearch('contacts', 'email', email, ['email', 'firstname', 'lastname']);
+  let record;
+  let created = false;
+  if (search.total > 0) {
+    record = search.results[0];
+  } else {
+    const properties = { email };
+    if (firstname) properties.firstname = firstname;
+    if (lastname) properties.lastname = lastname;
+    record = await hubspotCreate('contacts', properties);
+    created = true;
+  }
+  if (companyId && record?.id) await hubspotAssociate('contact', record.id, 'company', companyId);
+  return { record, created };
+}
+
 function parseIsoDate(value, fieldName) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) {
     const err = new Error(`${fieldName} deve estar no formato YYYY-MM-DD`);
     err.status = 400;
     err.data = { field: fieldName, expected_format: 'YYYY-MM-DD' };
+    err.source = 'request';
     throw err;
   }
   const [year, month, day] = value.split('-').map(Number);
@@ -249,183 +316,182 @@ function parseIsoDate(value, fieldName) {
     const err = new Error(`${fieldName} invalida`);
     err.status = 400;
     err.data = { field: fieldName };
+    err.source = 'request';
     throw err;
   }
   return date;
 }
 
-function formatIsoDate(date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function addDaysUtc(date, days) {
-  const result = new Date(date.getTime());
-  result.setUTCDate(result.getUTCDate() + days);
-  return result;
-}
-
-function nextWednesdayOnOrAfter(date) {
-  const day = date.getUTCDay();
-  const wednesday = 3;
-  const delta = (wednesday - day + 7) % 7;
-  return addDaysUtc(date, delta);
-}
+function formatIsoDate(date) { return date.toISOString().slice(0, 10); }
+function addDaysUtc(date, days) { const result = new Date(date.getTime()); result.setUTCDate(result.getUTCDate() + days); return result; }
+function nextWednesdayOnOrAfter(date) { const delta = (3 - date.getUTCDay() + 7) % 7; return addDaysUtc(date, delta); }
 
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
     service: 'seta-erp-connector',
-    configured: getMissingEnv().length === 0
+    configured: getMissingEnv().length === 0,
+    hubspot_configured: Boolean(HUBSPOT_ACCESS_TOKEN)
   });
 });
 
 app.use('/erp', auth);
 
-app.get('/erp/clientes', async (req, res) => {
-  try { res.json(await betelRequest('/clientes', { query: req.query })); }
-  catch (err) { handleError(err, res); }
-});
-
-app.post('/erp/clientes', async (req, res) => {
-  try { res.json(await betelRequest('/clientes', { method: 'POST', body: req.body })); }
-  catch (err) { handleError(err, res); }
-});
-
-app.get('/erp/produtos', async (req, res) => {
-  try { res.json(await betelRequest('/produtos', { query: req.query })); }
-  catch (err) { handleError(err, res); }
-});
-
-app.get('/erp/usuarios', async (req, res) => {
-  try { res.json(await betelRequest('/usuarios', { query: req.query })); }
-  catch (err) { handleError(err, res); }
-});
-
-app.get('/erp/situacoes-orcamentos', async (req, res) => {
-  try { res.json(await betelRequest('/situacoes_orcamentos', { query: req.query })); }
-  catch (err) { handleError(err, res); }
-});
-
-app.get('/erp/orcamentos', async (req, res) => {
-  try { res.json(await betelRequest('/orcamentos', { query: req.query })); }
-  catch (err) { handleError(err, res); }
-});
-
-app.get('/erp/orcamentos/:id', async (req, res) => {
-  try { res.json(await betelRequest(`/orcamentos/${encodeURIComponent(req.params.id)}`)); }
-  catch (err) { handleError(err, res); }
-});
+app.get('/erp/clientes', async (req, res) => { try { res.json(await betelRequest('/clientes', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.post('/erp/clientes', async (req, res) => { try { res.json(await betelRequest('/clientes', { method: 'POST', body: req.body })); } catch (err) { handleError(err, res); } });
+app.get('/erp/produtos', async (req, res) => { try { res.json(await betelRequest('/produtos', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.get('/erp/usuarios', async (req, res) => { try { res.json(await betelRequest('/usuarios', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.get('/erp/situacoes-orcamentos', async (req, res) => { try { res.json(await betelRequest('/situacoes_orcamentos', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.get('/erp/orcamentos', async (req, res) => { try { res.json(await betelRequest('/orcamentos', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.get('/erp/orcamentos/:id', async (req, res) => { try { res.json(await betelRequest(`/orcamentos/${encodeURIComponent(req.params.id)}`)); } catch (err) { handleError(err, res); } });
 
 app.post('/erp/orcamentos', async (req, res) => {
   try {
     const { introduction, metadata } = buildProposalIntroduction(req.body || {});
-    const {
-      tipo_proposta,
-      solucao,
-      meses,
-      moeda,
-      ...betelBody
-    } = req.body || {};
-
+    const { tipo_proposta, solucao, meses, moeda, ...betelBody } = req.body || {};
     betelBody.introducao = introduction;
     const result = await betelRequest('/orcamentos', { method: 'POST', body: betelBody });
+    return res.json({ status: 'success', proposal: result, commercial: metadata, introducao_enviada: introduction });
+  } catch (err) { handleError(err, res); }
+});
+
+app.get('/erp/hubspot/empresas', async (req, res) => {
+  try {
+    if (!req.query.domain) throw requestError('domain e obrigatorio', { field: 'domain' });
+    res.json(await hubspotSearch('companies', 'domain', req.query.domain, ['name', 'domain', 'hubspot_owner_id']));
+  } catch (err) { handleError(err, res); }
+});
+
+app.get('/erp/hubspot/contatos', async (req, res) => {
+  try {
+    if (!req.query.email) throw requestError('email e obrigatorio', { field: 'email' });
+    res.json(await hubspotSearch('contacts', 'email', req.query.email, ['email', 'firstname', 'lastname']));
+  } catch (err) { handleError(err, res); }
+});
+
+app.get('/erp/hubspot/negocios', async (req, res) => {
+  try {
+    if (!req.query.numero_proposta) throw requestError('numero_proposta e obrigatorio', { field: 'numero_proposta' });
+    res.json(await hubspotSearch('deals', 'numero_da_proposta', req.query.numero_proposta, ['dealname', 'numero_da_proposta', 'link_da_proposta', 'pipeline', 'dealstage', 'amount', 'deal_currency_code']));
+  } catch (err) { handleError(err, res); }
+});
+
+app.post('/erp/hubspot/negocios-da-proposta', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const numero = String(body.numero_proposta || '').trim();
+    const empresa = String(body.empresa || '').trim();
+    const domain = String(body.domain || '').trim().toLowerCase();
+    const solucao = String(body.solucao || '').trim();
+    const link = String(body.link_proposta || '').trim();
+    const currency = String(body.moeda || 'BRL').trim().toUpperCase();
+    const amount = parseMoney(body.valor_negocio, 'valor_negocio');
+    const { rules, typeKey, typeRule } = getProposalTypeRule(body.tipo_proposta);
+
+    if (!numero) throw requestError('numero_proposta e obrigatorio', { field: 'numero_proposta' });
+    if (!empresa) throw requestError('empresa e obrigatoria', { field: 'empresa' });
+    if (!domain) throw requestError('domain e obrigatorio para localizar/criar a empresa no HubSpot', { field: 'domain' });
+    if (!solucao) throw requestError('solucao e obrigatoria', { field: 'solucao' });
+    if (!link) throw requestError('link_proposta e obrigatorio antes de criar o Deal', { field: 'link_proposta' });
+    if (!['BRL', 'USD'].includes(currency)) throw requestError('moeda invalida', { field: 'moeda', allowed: ['BRL', 'USD'] });
+    if (amount < 0) throw requestError('valor_negocio nao pode ser negativo', { field: 'valor_negocio' });
+
+    const duplicate = await hubspotSearch('deals', rules.workflow.deal_number_property || 'numero_da_proposta', numero, ['dealname', 'numero_da_proposta', 'link_da_proposta']);
+    if (duplicate.total > 0) {
+      return res.status(409).json({
+        error: 'deal_duplicate',
+        message: 'Ja existe um negocio no HubSpot com este numero de proposta.',
+        existing: duplicate.results[0]
+      });
+    }
+
+    const companyResult = await findOrCreateCompany({ empresa, domain });
+    const contactResult = await findOrCreateContact({
+      email: body.contato_email,
+      firstname: body.contato_nome,
+      lastname: body.contato_sobrenome,
+      companyId: companyResult.record.id
+    });
+
+    const dealName = String(rules.deal_name_pattern || '{numero_proposta} - {empresa} - {solucao}')
+      .replaceAll('{numero_proposta}', numero)
+      .replaceAll('{empresa}', empresa)
+      .replaceAll('{solucao}', solucao);
+
+    const properties = {
+      dealname: dealName,
+      pipeline: typeRule.hubspot_pipeline,
+      dealstage: typeRule.hubspot_stage_aguardando_proposta,
+      numero_da_proposta: numero,
+      link_da_proposta: link,
+      amount: String(amount),
+      deal_currency_code: currency
+    };
+    if (body.hubspot_owner_id) properties.hubspot_owner_id = String(body.hubspot_owner_id);
+
+    const deal = await hubspotCreate('deals', properties);
+    await hubspotAssociate('deal', deal.id, 'company', companyResult.record.id);
+    if (contactResult.record?.id) await hubspotAssociate('deal', deal.id, 'contact', contactResult.record.id);
+
     return res.json({
       status: 'success',
-      proposal: result,
-      commercial: metadata,
-      introducao_enviada: introduction
+      deal,
+      deal_name: dealName,
+      tipo_proposta: typeKey,
+      pipeline: typeRule.hubspot_pipeline,
+      dealstage: typeRule.hubspot_stage_aguardando_proposta,
+      company: { id: companyResult.record.id, created: companyResult.created, domain },
+      contact: contactResult.record ? { id: contactResult.record.id, created: contactResult.created, email: body.contato_email } : null
     });
   } catch (err) { handleError(err, res); }
 });
 
-app.get('/erp/recebimentos', async (req, res) => {
-  try { res.json(await betelRequest('/recebimentos', { query: req.query })); }
-  catch (err) { handleError(err, res); }
-});
-
-app.get('/erp/recebimentos/:id', async (req, res) => {
-  try { res.json(await betelRequest(`/recebimentos/${encodeURIComponent(req.params.id)}`)); }
-  catch (err) { handleError(err, res); }
-});
-
-app.post('/erp/recebimentos', async (req, res) => {
-  try { res.json(await betelRequest('/recebimentos', { method: 'POST', body: req.body })); }
-  catch (err) { handleError(err, res); }
-});
-
-app.get('/erp/planos-contas', async (req, res) => {
-  try { res.json(await betelRequest('/planos_contas', { query: req.query })); }
-  catch (err) { handleError(err, res); }
-});
-
-app.get('/erp/formas-pagamentos', async (req, res) => {
-  try { res.json(await betelRequest('/formas_pagamentos', { query: req.query })); }
-  catch (err) { handleError(err, res); }
-});
-
-app.get('/erp/contas-bancarias', async (req, res) => {
-  try { res.json(await betelRequest('/contas_bancarias', { query: req.query })); }
-  catch (err) { handleError(err, res); }
-});
+app.get('/erp/recebimentos', async (req, res) => { try { res.json(await betelRequest('/recebimentos', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.get('/erp/recebimentos/:id', async (req, res) => { try { res.json(await betelRequest(`/recebimentos/${encodeURIComponent(req.params.id)}`)); } catch (err) { handleError(err, res); } });
+app.post('/erp/recebimentos', async (req, res) => { try { res.json(await betelRequest('/recebimentos', { method: 'POST', body: req.body })); } catch (err) { handleError(err, res); } });
+app.get('/erp/planos-contas', async (req, res) => { try { res.json(await betelRequest('/planos_contas', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.get('/erp/formas-pagamentos', async (req, res) => { try { res.json(await betelRequest('/formas_pagamentos', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.get('/erp/contas-bancarias', async (req, res) => { try { res.json(await betelRequest('/contas_bancarias', { query: req.query })); } catch (err) { handleError(err, res); } });
 
 app.get('/erp/regras-faturamento', (req, res) => {
   try {
     const rule = findBillingRule({ cliente: req.query.cliente, cliente_id: req.query.cliente_id });
-    if (!rule) {
-      return res.status(404).json({
-        error: 'billing_rule_not_found',
-        message: 'Nenhuma regra de faturamento cadastrada para este cliente.'
-      });
-    }
+    if (!rule) return res.status(404).json({ error: 'billing_rule_not_found', message: 'Nenhuma regra de faturamento cadastrada para este cliente.' });
     return res.json({ status: 'success', data: rule });
-  } catch (err) {
-    return handleError(err, res);
-  }
+  } catch (err) { return handleError(err, res); }
 });
 
 app.post('/erp/regras-faturamento/calcular', (req, res) => {
   try {
     const { cliente, cliente_id, vencimento_anterior, data_edicao } = req.body || {};
     const rule = findBillingRule({ cliente, cliente_id });
-    if (!rule) {
-      return res.status(404).json({
-        error: 'billing_rule_not_found',
-        message: 'Nenhuma regra de faturamento cadastrada para este cliente.'
-      });
-    }
+    if (!rule) return res.status(404).json({ error: 'billing_rule_not_found', message: 'Nenhuma regra de faturamento cadastrada para este cliente.' });
 
     const previousDue = parseIsoDate(vencimento_anterior, 'vencimento_anterior');
     parseIsoDate(data_edicao, 'data_edicao');
-
     if (rule.vencimento.base !== 'vencimento_fatura_anterior') {
       return res.status(400).json({ error: 'unsupported_billing_rule', message: 'Base de vencimento ainda nao suportada pelo calculador.' });
     }
 
     const minimumDate = addDaysUtc(previousDue, Number(rule.vencimento.dias_minimos || 0));
     let dueDate = minimumDate;
-
     if (rule.vencimento.ajuste_dia_semana === 'quarta-feira' && rule.vencimento.regra_ajuste === 'primeira_quarta_igual_ou_posterior') {
       dueDate = nextWednesdayOnOrAfter(minimumDate);
     }
 
-    return res.json({
-      status: 'success',
-      data: {
-        cliente: rule.cliente_nome,
-        regra_key: rule.key,
-        data_emissao: data_edicao,
-        vencimento_anterior,
-        dias_minimos: rule.vencimento.dias_minimos,
-        data_minima_sem_ajuste: formatIsoDate(minimumDate),
-        novo_vencimento: formatIsoDate(dueDate),
-        dia_semana_vencimento: 'quarta-feira',
-        regra_aplicada: rule.vencimento.regra_ajuste,
-        exige_confirmacao_antes_de_gerar: Boolean(rule.workflow?.exigir_confirmacao_antes_de_gerar)
-      }
-    });
-  } catch (err) {
-    return handleError(err, res);
-  }
+    return res.json({ status: 'success', data: {
+      cliente: rule.cliente_nome,
+      regra_key: rule.key,
+      data_emissao: data_edicao,
+      vencimento_anterior,
+      dias_minimos: rule.vencimento.dias_minimos,
+      data_minima_sem_ajuste: formatIsoDate(minimumDate),
+      novo_vencimento: formatIsoDate(dueDate),
+      dia_semana_vencimento: 'quarta-feira',
+      regra_aplicada: rule.vencimento.regra_ajuste,
+      exige_confirmacao_antes_de_gerar: Boolean(rule.workflow?.exigir_confirmacao_antes_de_gerar)
+    }});
+  } catch (err) { return handleError(err, res); }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
