@@ -69,6 +69,37 @@ async function hubspotRequest(path, { method = 'GET', body } = {}) {
   throw err;
 }
 
+async function legacyRequest(path, { method = 'GET', body } = {}) {
+  if (!CONNECTOR_API_KEY) {
+    const err = new Error('CONNECTOR_API_KEY nao configurado');
+    err.status = 503;
+    err.source = 'legacy';
+    err.data = { missing: ['CONNECTOR_API_KEY'] };
+    throw err;
+  }
+
+  const response = await fetch(`http://127.0.0.1:${INTERNAL_PORT}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${CONNECTOR_API_KEY}`,
+      Accept: 'application/json',
+      ...(body ? { 'Content-Type': 'application/json' } : {})
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  const text = await response.text();
+  let data;
+  try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+  if (response.ok) return data;
+
+  const err = new Error(`Legacy connector error ${response.status}`);
+  err.status = response.status;
+  err.source = 'legacy';
+  err.data = data;
+  throw err;
+}
+
 function normalizeRecipient(value, index) {
   const email = String(value?.email || '').trim().toLowerCase();
   if (!email || !email.includes('@')) throw requestError(`destinatarios[${index}].email invalido`, { field: `destinatarios[${index}].email` });
@@ -90,6 +121,180 @@ function loadProposalRules() {
   return JSON.parse(fs.readFileSync(fileUrl, 'utf8'));
 }
 
+function normalizeText(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+}
+
+function collectionFromPayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return [];
+  for (const key of ['data', 'dados', 'results', 'orcamentos', 'items', 'registros']) {
+    if (Array.isArray(payload[key])) return payload[key];
+  }
+  return [];
+}
+
+function objectFromPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+  for (const key of ['data', 'dados', 'result', 'orcamento', 'item', 'registro']) {
+    if (payload[key] && typeof payload[key] === 'object' && !Array.isArray(payload[key])) return payload[key];
+  }
+  return payload;
+}
+
+function findProposalByNumber(payload, numero) {
+  const list = collectionFromPayload(payload);
+  const match = list.find(item => {
+    const value = item?.codigo ?? item?.numero ?? item?.numero_proposta ?? item?.codigo_orcamento;
+    return String(value ?? '') === String(numero);
+  });
+  if (match) return match;
+  if (list.length === 1) return list[0];
+  const single = objectFromPayload(payload);
+  if (single && typeof single === 'object') {
+    const value = single.codigo ?? single.numero ?? single.numero_proposta ?? single.codigo_orcamento;
+    if (String(value ?? '') === String(numero)) return single;
+  }
+  return null;
+}
+
+function firstValue(objects, keys) {
+  for (const obj of objects) {
+    if (!obj || typeof obj !== 'object') continue;
+    for (const key of keys) {
+      const value = obj[key];
+      if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+    }
+  }
+  return null;
+}
+
+function proposalIdentity(proposal) {
+  const customer = proposal?.cliente && typeof proposal.cliente === 'object' ? proposal.cliente : null;
+  const companyName = firstValue(
+    [customer, proposal],
+    ['razao_social', 'nome', 'cliente_nome', 'nome_cliente', 'empresa', 'cliente_razao_social']
+  );
+  const email = firstValue([customer, proposal], ['email', 'cliente_email', 'email_cliente']);
+  const website = firstValue([customer, proposal], ['domain', 'dominio', 'website', 'site']);
+  let domain = String(website || '').trim().toLowerCase();
+  if (domain) domain = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+  if (!domain && email && String(email).includes('@')) domain = String(email).split('@').pop().trim().toLowerCase();
+  const customerId = firstValue([customer, proposal], ['id', 'cliente_id', 'id_cliente']);
+  return {
+    company_name: companyName ? String(companyName).trim() : null,
+    customer_id: customerId ? String(customerId) : null,
+    email: email ? String(email).trim().toLowerCase() : null,
+    domain: domain || null
+  };
+}
+
+async function hubspotSearchExact(objectType, propertyName, value, properties = []) {
+  return hubspotRequest(`/crm/v3/objects/${objectType}/search`, {
+    method: 'POST',
+    body: {
+      filterGroups: [{ filters: [{ propertyName, operator: 'EQ', value: String(value) }] }],
+      properties,
+      limit: 10
+    }
+  });
+}
+
+async function hubspotSearchQuery(objectType, query, properties = []) {
+  return hubspotRequest(`/crm/v3/objects/${objectType}/search`, {
+    method: 'POST',
+    body: {
+      query: String(query),
+      properties,
+      limit: 10
+    }
+  });
+}
+
+async function getAssociatedContacts(companyId) {
+  const associationPage = await hubspotRequest(`/crm/v3/objects/companies/${encodeURIComponent(companyId)}/associations/contacts?limit=100`);
+  const ids = (associationPage?.results || []).map(item => String(item.id)).filter(Boolean);
+  const contacts = [];
+  for (const id of ids.slice(0, 100)) {
+    try {
+      const contact = await hubspotRequest(`/crm/v3/objects/contacts/${encodeURIComponent(id)}?properties=firstname,lastname,email,phone,hubspot_owner_id`);
+      contacts.push(contact);
+    } catch (err) {
+      contacts.push({ id, error: err.message });
+    }
+  }
+  return contacts;
+}
+
+async function getAssociatedEmails(dealId) {
+  const associationPage = await hubspotRequest(`/crm/v3/objects/deals/${encodeURIComponent(dealId)}/associations/emails?limit=100`);
+  const ids = (associationPage?.results || []).map(item => String(item.id)).filter(Boolean);
+  const emails = [];
+  for (const id of ids.slice(0, 50)) {
+    try {
+      const email = await hubspotRequest(`/crm/v3/objects/emails/${encodeURIComponent(id)}?properties=hs_timestamp,hs_email_subject,hs_email_status,hs_email_direction,hs_email_from_email,hs_email_to_email,hs_email_text`);
+      emails.push(email);
+    } catch (err) {
+      emails.push({ id, error: err.message });
+    }
+  }
+  return emails.sort((a, b) => String(b?.properties?.hs_timestamp || '').localeCompare(String(a?.properties?.hs_timestamp || '')));
+}
+
+function stageLabel(stage, pipeline, rules) {
+  const map = {
+    default: {
+      appointmentscheduled: 'Lead Gerado',
+      '1341580032': 'Reunião Agendada',
+      '20205433': 'Aguardando Proposta',
+      qualifiedtobuy: 'Proposta Enviada',
+      '10765435': 'Negociação',
+      '55772800': 'FUP',
+      '222315381': 'Final FuP',
+      '20072970': 'Ganho',
+      '55522584': 'Perdido'
+    },
+    '9501279': {
+      '9501281': 'Lead Gerado',
+      '1374787152': 'Reunião Agendada',
+      '9501282': 'Aguardando Proposta',
+      '9501283': 'Proposta Enviada',
+      '14236287': 'Negociação',
+      '55787052': 'FUP',
+      '222285129': 'Final FuP',
+      '14236286': 'Ganho',
+      '222271749': 'Pós-venda cross+upsell',
+      '55587368': 'Perdido'
+    }
+  };
+  if (map[pipeline]?.[stage]) return map[pipeline][stage];
+  for (const typeRule of Object.values(rules.types || {})) {
+    if (String(typeRule.hubspot_pipeline) !== String(pipeline)) continue;
+    if (String(typeRule.hubspot_stage_aguardando_proposta) === String(stage)) return 'Aguardando Proposta';
+    if (String(typeRule.hubspot_stage_proposta_enviada) === String(stage)) return 'Proposta Enviada';
+    if (String(typeRule.hubspot_stage_ganho) === String(stage)) return 'Ganho';
+  }
+  return stage || null;
+}
+
+function recommendedAction(deal, emails, rules) {
+  if (!deal) return { code: 'criar_deal', label: 'Criar Deal no HubSpot a partir da proposta do ERP' };
+  const pipeline = String(deal?.properties?.pipeline || '');
+  const stage = String(deal?.properties?.dealstage || '');
+  const label = stageLabel(stage, pipeline, rules);
+  if (label === 'Ganho') return { code: 'ganho_concluido', label: 'Negócio já marcado como Ganho' };
+  if (label === 'Perdido') return { code: 'perdido_concluido', label: 'Negócio já marcado como Perdido' };
+  if (label === 'Aguardando Proposta') return { code: 'enviar_proposta', label: 'Preparar e enviar a proposta; registrar o e-mail e mover para Proposta Enviada' };
+  if (['Proposta Enviada', 'Negociação', 'FUP', 'Final FuP'].includes(label)) {
+    return {
+      code: 'analisar_followup',
+      label: 'Analisar o negócio e o histórico de e-mails para decidir o próximo follow-up',
+      last_email_at: emails?.[0]?.properties?.hs_timestamp || null
+    };
+  }
+  return { code: 'acompanhar_negocio', label: 'Acompanhar o negócio conforme a etapa atual' };
+}
+
 async function associateEmail(emailId, objectType, objectId) {
   if (!objectId) return null;
   return hubspotRequest(`/crm/v4/objects/emails/${encodeURIComponent(emailId)}/associations/default/${objectType}/${encodeURIComponent(objectId)}`, { method: 'PUT' });
@@ -100,9 +305,103 @@ app.get('/health', (req, res) => {
     status: 'ok',
     service: 'seta-erp-connector',
     gateway: true,
+    unified_proposal_workflow: true,
     hubspot_configured: Boolean(HUBSPOT_ACCESS_TOKEN),
     connector_configured: Boolean(CONNECTOR_API_KEY)
   });
+});
+
+app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
+  try {
+    const numero = String(req.params.numero || '').trim();
+    if (!/^\d+$/.test(numero)) throw requestError('numero da proposta deve ser numerico', { field: 'numero' });
+
+    const erpSearch = await legacyRequest(`/erp/orcamentos?codigo=${encodeURIComponent(numero)}`);
+    const summary = findProposalByNumber(erpSearch, numero);
+    if (!summary) {
+      return res.status(404).json({
+        error: 'proposal_not_found',
+        numero_proposta: numero,
+        message: `Proposta ${numero} nao encontrada no ERP`,
+        erp_search: erpSearch
+      });
+    }
+
+    const internalId = summary.id ?? summary.orcamento_id ?? summary.id_orcamento ?? null;
+    let erpDetail = summary;
+    if (internalId) {
+      try {
+        erpDetail = objectFromPayload(await legacyRequest(`/erp/orcamentos/${encodeURIComponent(internalId)}`)) || summary;
+      } catch (err) {
+        erpDetail = summary;
+      }
+    }
+
+    const identity = proposalIdentity(erpDetail);
+    const dealSearch = await hubspotSearchExact(
+      'deals',
+      'numero_da_proposta',
+      numero,
+      ['dealname', 'numero_da_proposta', 'link_da_proposta', 'pipeline', 'dealstage', 'amount', 'deal_currency_code', 'solucao', 'hubspot_owner_id', 'createdate', 'hs_lastmodifieddate']
+    );
+    const deal = dealSearch?.results?.[0] || null;
+
+    let company = null;
+    let companyCandidates = [];
+    if (identity.domain) {
+      const companySearch = await hubspotSearchExact('companies', 'domain', identity.domain, ['name', 'domain', 'website', 'hubspot_owner_id']);
+      companyCandidates = companySearch?.results || [];
+      company = companyCandidates[0] || null;
+    }
+    if (!company && identity.company_name) {
+      const companySearch = await hubspotSearchQuery('companies', identity.company_name, ['name', 'domain', 'website', 'hubspot_owner_id']);
+      companyCandidates = companySearch?.results || [];
+      company = companyCandidates.find(item => normalizeText(item?.properties?.name) === normalizeText(identity.company_name)) || companyCandidates[0] || null;
+    }
+
+    let contacts = [];
+    if (company?.id) contacts = await getAssociatedContacts(company.id);
+
+    let emails = [];
+    if (deal?.id) emails = await getAssociatedEmails(deal.id);
+
+    const rules = loadProposalRules();
+    const currentPipeline = deal?.properties?.pipeline || null;
+    const currentStage = deal?.properties?.dealstage || null;
+
+    res.json({
+      status: 'success',
+      numero_proposta: numero,
+      source_of_truth: {
+        proposal: 'ERP Betel',
+        crm: 'HubSpot',
+        email_history: 'HubSpot EMAIL engagements registered after Outlook send'
+      },
+      erp: {
+        found: true,
+        internal_id: internalId ? String(internalId) : null,
+        identity,
+        proposal: erpDetail
+      },
+      hubspot: {
+        deal_found: Boolean(deal),
+        deal,
+        deal_stage_label: deal ? stageLabel(currentStage, currentPipeline, rules) : null,
+        company_found: Boolean(company),
+        company,
+        company_candidates: companyCandidates,
+        contacts,
+        email_history: emails,
+        last_email: emails[0] || null
+      },
+      commercial: {
+        next_action: recommendedAction(deal, emails, rules),
+        workflow: rules.workflow || null
+      }
+    });
+  } catch (err) {
+    handleError(err, res);
+  }
 });
 
 app.post('/erp/hubspot/emails/registrar-envio', auth, async (req, res) => {
@@ -220,7 +519,6 @@ app.post('/erp/hubspot/negocios/:id/marcar-ganho', auth, async (req, res) => {
     }
 
     const tipo = String(body.tipo_proposta || '').trim().toLowerCase();
-    const motivo = String(body.motivo_ganho || '').trim();
     const rules = loadProposalRules();
     const typeRule = rules.types?.[tipo];
     if (!typeRule) throw requestError('tipo_proposta invalido', { field: 'tipo_proposta', allowed: Object.keys(rules.types || {}) });
@@ -228,9 +526,17 @@ app.post('/erp/hubspot/negocios/:id/marcar-ganho', auth, async (req, res) => {
 
     const wonRules = rules.deal_won || {};
     const allowedReasons = wonRules.allowed_reasons || [];
-    if (!motivo) throw requestError('motivo_ganho e obrigatorio', { field: 'motivo_ganho', allowed: allowedReasons });
-    if (!allowedReasons.includes(motivo)) {
-      throw requestError('motivo_ganho invalido', { field: 'motivo_ganho', allowed: allowedReasons });
+    const rawReasons = Array.isArray(body.motivos_ganho)
+      ? body.motivos_ganho
+      : (body.motivo_ganho ? [body.motivo_ganho] : []);
+    const reasons = [...new Set(rawReasons.map(value => String(value || '').trim()).filter(Boolean))];
+    if (reasons.length === 0) throw requestError('motivos_ganho deve conter pelo menos um motivo', { field: 'motivos_ganho', allowed: allowedReasons });
+    const invalidReasons = reasons.filter(reason => !allowedReasons.includes(reason));
+    if (invalidReasons.length) {
+      throw requestError('Um ou mais motivos_ganho sao invalidos', { field: 'motivos_ganho', invalid: invalidReasons, allowed: allowedReasons });
+    }
+    if (wonRules.allow_multiple_reasons === false && reasons.length > 1) {
+      throw requestError('A configuracao atual permite somente um motivo de ganho', { field: 'motivos_ganho' });
     }
 
     const dealId = String(req.params.id || '').trim();
@@ -246,12 +552,14 @@ app.post('/erp/hubspot/negocios/:id/marcar-ganho', auth, async (req, res) => {
     }
 
     const reasonProperty = wonRules.reason_property || 'descricao_motivo_ganho__clonado_';
+    const separator = String(wonRules.separator || ';');
+    const serializedReasons = reasons.join(separator);
     const updatedDeal = await hubspotRequest(`/crm/v3/objects/deals/${encodeURIComponent(dealId)}`, {
       method: 'PATCH',
       body: {
         properties: {
           dealstage: String(typeRule.hubspot_stage_ganho),
-          [reasonProperty]: motivo
+          [reasonProperty]: serializedReasons
         }
       }
     });
@@ -266,7 +574,7 @@ app.post('/erp/hubspot/negocios/:id/marcar-ganho', auth, async (req, res) => {
       pipeline: typeRule.hubspot_pipeline,
       etapa_anterior: currentDeal?.properties?.dealstage || null,
       etapa_ganho: typeRule.hubspot_stage_ganho,
-      motivo_ganho: motivo,
+      motivos_ganho: reasons,
       motivo_property: reasonProperty
     });
   } catch (err) {
