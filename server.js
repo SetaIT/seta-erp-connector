@@ -9,20 +9,28 @@ const BETEL_ACCESS_TOKEN = process.env.BETEL_ACCESS_TOKEN;
 const BETEL_SECRET_ACCESS_TOKEN = process.env.BETEL_SECRET_ACCESS_TOKEN;
 const CONNECTOR_API_KEY = process.env.CONNECTOR_API_KEY;
 
-function requireEnv() {
+function getMissingEnv() {
   const missing = [];
   if (!BETEL_ACCESS_TOKEN) missing.push('BETEL_ACCESS_TOKEN');
   if (!BETEL_SECRET_ACCESS_TOKEN) missing.push('BETEL_SECRET_ACCESS_TOKEN');
   if (!CONNECTOR_API_KEY) missing.push('CONNECTOR_API_KEY');
-  if (missing.length) {
-    console.error(`Missing required environment variables: ${missing.join(', ')}`);
-    process.exit(1);
-  }
+  return missing;
 }
 
-requireEnv();
+const missingAtStartup = getMissingEnv();
+if (missingAtStartup.length) {
+  console.warn(`Connector started with missing environment variables: ${missingAtStartup.join(', ')}`);
+}
 
 function auth(req, res, next) {
+  const missing = getMissingEnv();
+  if (missing.length) {
+    return res.status(503).json({
+      error: 'connector_not_configured',
+      missing
+    });
+  }
+
   const expected = `Bearer ${CONNECTOR_API_KEY}`;
   if (req.headers.authorization !== expected) {
     return res.status(401).json({ error: 'unauthorized' });
@@ -89,7 +97,11 @@ function handleError(err, res) {
 }
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'seta-erp-connector' });
+  res.status(200).json({
+    status: 'ok',
+    service: 'seta-erp-connector',
+    configured: getMissingEnv().length === 0
+  });
 });
 
 app.use('/erp', auth);
@@ -166,6 +178,6 @@ app.post('/erp/orcamentos', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Seta ERP Connector listening on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Seta ERP Connector listening on 0.0.0.0:${PORT}`);
 });
