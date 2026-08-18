@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: Conector seguro entre ChatGPT Actions e a API Betel Tecnologia.
 servers:
-  - url: https://SEU-DOMINIO-DO-CONECTOR
+  - url: https://seta-erp-connector-production-1255.up.railway.app
 security:
   - bearerAuth: []
 paths:
