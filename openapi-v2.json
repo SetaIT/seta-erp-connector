@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Seta Telecom ERP Connector",
-    "version": "1.0.9-json",
+    "version": "1.0.10-json",
     "description": "Conector seguro entre ChatGPT Actions, ERP Betel, Outlook e HubSpot para o fluxo comercial da Seta Telecom."
   },
   "servers": [{"url": "https://seta-erp-connector-production-1255.up.railway.app"}],
@@ -19,7 +19,7 @@
       "post": {"operationId":"criarOrcamento","summary":"Cria uma proposta no ERP com regras comerciais da Seta","description":"Antes de criar, pergunte obrigatoriamente o tipo da proposta e a solucao. Locacao e SpareParts exigem quantidade de meses. O conector monta automaticamente o campo Introducao. Exija confirmacao explicita do usuario imediatamente antes da gravacao.","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tipo","codigo","cliente_id","data","situacao_id","tipo_proposta","solucao","produtos"],"properties":{"tipo":{"type":"string"},"codigo":{"type":"integer","description":"Consulte explicitamente este codigo antes de criar para evitar duplicidade."},"cliente_id":{"type":"string"},"vendedor_id":{"type":"string"},"data":{"type":"string"},"situacao_id":{"type":"string"},"validade":{"type":"string"},"tipo_proposta":{"type":"string","enum":["locacao","compra","spareparts"]},"solucao":{"type":"string"},"meses":{"type":"integer","minimum":1},"moeda":{"type":"string","enum":["BRL","USD"],"default":"BRL"},"introducao":{"type":"string"},"observacoes":{"type":"string"},"observacoes_interna":{"type":"string"},"valor_frete":{"type":"number"},"desconto_valor":{"type":"string"},"desconto_porcentagem":{"type":"string"},"produtos":{"type":"array","minItems":1,"items":{"type":"object","properties":{"produto":{"type":"object","required":["id","quantidade","valor_venda"],"properties":{"id":{"type":"string"},"variacao_id":{"type":"string"},"quantidade":{"type":"string"},"valor_venda":{"type":"string"},"tipo_valor_id":{"type":"string"}}}}}}}}}}},"responses":{"200":{"description":"Proposta criada"},"400":{"description":"Regra comercial invalida"}}}
     },
     "/erp/orcamentos/{id}": {"get":{"operationId":"consultarOrcamento","summary":"Consulta um orcamento pelo ID interno","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Orcamento encontrado"}}}},
-    "/erp/hubspot/configuracao-proposta": {"get":{"operationId":"buscarConfiguracaoComercialHubSpot","summary":"Retorna regras do fluxo de propostas, Deal e template de e-mail","description":"Use para conhecer pipeline, etapas, regra de valor de locacao e o template padrao.","responses":{"200":{"description":"Configuracao comercial"}}}},
+    "/erp/hubspot/configuracao-proposta": {"get":{"operationId":"buscarConfiguracaoComercialHubSpot","summary":"Retorna regras do fluxo de propostas, Deal e template de e-mail","description":"Use para conhecer pipeline, etapas, motivos de ganho, regra de valor de locacao e o template padrao.","responses":{"200":{"description":"Configuracao comercial"}}}},
     "/erp/hubspot/empresas": {"get":{"operationId":"buscarEmpresaHubSpot","summary":"Busca empresa no HubSpot pelo dominio","parameters":[{"name":"domain","in":"query","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Resultado da busca"},"503":{"description":"HubSpot nao configurado"}}}},
     "/erp/hubspot/empresas/{id}/contatos": {"get":{"operationId":"buscarContatosDaEmpresaHubSpot","summary":"Lista contatos associados a uma empresa no HubSpot","description":"Use antes de criar o Deal para permitir que o usuario escolha um ou mais destinatarios sem duplicar contatos.","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Contatos associados"}}}},
     "/erp/hubspot/contatos": {"get":{"operationId":"buscarContatoHubSpot","summary":"Busca contato no HubSpot pelo e-mail","parameters":[{"name":"email","in":"query","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Resultado da busca"}}}},
@@ -50,6 +50,16 @@
         "parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],
         "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tipo_proposta","envio_confirmado"],"properties":{"tipo_proposta":{"type":"string","enum":["locacao","compra","spareparts"]},"envio_confirmado":{"type":"boolean","const":true},"solucao":{"type":"string"}}}}}},
         "responses":{"200":{"description":"Deal movido para Proposta Enviada"},"400":{"description":"Envio ainda nao confirmado"}}
+      }
+    },
+    "/erp/hubspot/negocios/{id}/marcar-ganho": {
+      "post": {
+        "operationId":"marcarNegocioGanhoHubSpot",
+        "summary":"Marca um Deal como Ganho e registra o motivo da vitória",
+        "description":"Antes de executar, apresente o Deal e o motivo escolhido e obtenha confirmacao explicita. A rota valida o pipeline atual contra o tipo da proposta, grava o motivo em Descrição Motivo Ganho e move para a etapa Ganho correta.",
+        "parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tipo_proposta","motivo_ganho","confirmacao_ganho"],"properties":{"tipo_proposta":{"type":"string","enum":["locacao","compra","spareparts"]},"motivo_ganho":{"type":"string","enum":["Nossa Solução foi a Melhor","Disponibilidade","Prazo de Entrega","Relacionamento","Preço"]},"confirmacao_ganho":{"type":"boolean","const":true}}}}}},
+        "responses":{"200":{"description":"Deal marcado como Ganho"},"400":{"description":"Confirmacao ausente, motivo invalido ou pipeline incompatível"},"503":{"description":"HubSpot nao configurado"}}
       }
     },
     "/erp/recebimentos": {
