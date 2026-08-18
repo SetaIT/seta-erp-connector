@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Seta Telecom ERP Connector",
-    "version": "1.0.2-json",
+    "version": "1.0.3-json",
     "description": "Conector seguro entre ChatGPT Actions e a API Betel Tecnologia."
   },
   "servers": [
@@ -149,6 +149,42 @@
           {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
         ],
         "responses": {"200": {"description": "Orcamento encontrado"}}
+      }
+    },
+    "/erp/recebimentos": {
+      "get": {
+        "operationId": "buscarRecebimentos",
+        "summary": "Busca recebimentos financeiros no ERP",
+        "description": "Use para recibos ou recebimentos. Pode filtrar por cliente, periodo, status, descricao, plano de contas e forma de pagamento.",
+        "parameters": [
+          {"name": "pagina", "in": "query", "schema": {"type": "integer", "default": 1}},
+          {"name": "limit", "in": "query", "schema": {"type": "integer"}},
+          {"name": "codigo", "in": "query", "schema": {"type": "integer"}},
+          {"name": "nome", "in": "query", "schema": {"type": "string"}},
+          {"name": "cliente_id", "in": "query", "schema": {"type": "integer"}},
+          {"name": "data_inicio", "in": "query", "schema": {"type": "string"}},
+          {"name": "data_fim", "in": "query", "schema": {"type": "string"}},
+          {"name": "valor_inicio", "in": "query", "schema": {"type": "number"}},
+          {"name": "valor_fim", "in": "query", "schema": {"type": "number"}},
+          {"name": "liquidado", "in": "query", "description": "ab=Em aberto, at=Em atraso, pg=Confirmado", "schema": {"type": "string", "enum": ["ab", "at", "pg"]}},
+          {"name": "plano_contas_id", "in": "query", "schema": {"type": "integer"}},
+          {"name": "centro_custo_id", "in": "query", "schema": {"type": "integer"}},
+          {"name": "conta_bancaria_id", "in": "query", "schema": {"type": "integer"}},
+          {"name": "forma_pagamento_id", "in": "query", "schema": {"type": "integer"}},
+          {"name": "ordenacao", "in": "query", "schema": {"type": "string"}},
+          {"name": "direcao", "in": "query", "schema": {"type": "string", "enum": ["asc", "desc"]}}
+        ],
+        "responses": {"200": {"description": "Recebimentos encontrados"}}
+      }
+    },
+    "/erp/recebimentos/{id}": {
+      "get": {
+        "operationId": "consultarRecebimento",
+        "summary": "Consulta um recebimento pelo ID interno",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "Recebimento encontrado"}}
       }
     }
   },
