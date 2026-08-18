@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "currency_default": "BRL",
   "deal_name_pattern": "{numero_proposta} - {empresa} - {solucao}",
   "types": {
@@ -10,7 +10,8 @@
       "introduction_pattern": "Proposta de Locação - {meses} meses\nValor mensal: {valor_formatado}/mês",
       "hubspot_pipeline": "9501279",
       "hubspot_stage_aguardando_proposta": "9501282",
-      "hubspot_stage_proposta_enviada": "9501283"
+      "hubspot_stage_proposta_enviada": "9501283",
+      "hubspot_stage_ganho": "14236286"
     },
     "compra": {
       "label": "Proposta de Compra",
@@ -21,7 +22,8 @@
       "introduction_pattern_usd": "Proposta de Compra - USD\nValor total: {valor_formatado}",
       "hubspot_pipeline": "default",
       "hubspot_stage_aguardando_proposta": "20205433",
-      "hubspot_stage_proposta_enviada": "qualifiedtobuy"
+      "hubspot_stage_proposta_enviada": "qualifiedtobuy",
+      "hubspot_stage_ganho": "20072970"
     },
     "spareparts": {
       "label": "Proposta de SpareParts",
@@ -30,8 +32,21 @@
       "introduction_pattern": "Proposta de SpareParts - {meses} meses\nValor mensal: {valor_formatado}/mês",
       "hubspot_pipeline": "9501279",
       "hubspot_stage_aguardando_proposta": "9501282",
-      "hubspot_stage_proposta_enviada": "9501283"
+      "hubspot_stage_proposta_enviada": "9501283",
+      "hubspot_stage_ganho": "14236286"
     }
+  },
+  "deal_won": {
+    "reason_property": "descricao_motivo_ganho__clonado_",
+    "allowed_reasons": [
+      "Nossa Solução foi a Melhor",
+      "Disponibilidade",
+      "Prazo de Entrega",
+      "Relacionamento",
+      "Preço"
+    ],
+    "require_reason": true,
+    "require_explicit_confirmation": true
   },
   "email": {
     "template_name": "Envio de Proposta - Ago 2025",
