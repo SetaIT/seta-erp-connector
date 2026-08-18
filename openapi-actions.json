@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agente de Propostas Seta Telecom",
-    "version": "2.0.3",
+    "version": "2.0.4",
     "description": "Action unica do Agente de Propostas para ERP Betel, HubSpot e registro do fluxo comercial."
   },
   "servers": [
@@ -124,6 +124,16 @@
         "operationId": "buscarConfiguracaoComercialHubSpot",
         "summary": "Retorna regras comerciais e pipelines",
         "responses": {"200": {"description": "Configuracao comercial", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}
+      }
+    },
+    "/erp/hubspot/health": {
+      "get": {
+        "operationId": "verificarConexaoHubSpot",
+        "summary": "Testa a autenticacao real do HubSpot no Railway",
+        "description": "Executa uma chamada real de leitura no HubSpot usando HUBSPOT_ACCESS_TOKEN. Use para diagnosticar token, autenticacao e permissao antes de testar outras operacoes HubSpot.",
+        "responses": {
+          "200": {"description": "Resultado do teste de autenticacao do HubSpot", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}
+        }
       }
     },
     "/erp/hubspot/empresas": {
