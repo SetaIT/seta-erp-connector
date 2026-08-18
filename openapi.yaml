@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Seta Telecom ERP Connector
-  version: 1.0.3
+  version: 1.0.4
   description: Conector seguro entre ChatGPT Actions e a API Betel Tecnologia.
 servers:
   - url: https://seta-erp-connector-production-1255.up.railway.app
@@ -13,44 +13,37 @@ paths:
       parameters:
         - in: query
           name: pagina
-          schema:
-            type: integer
-            default: 1
+          schema: { type: integer, default: 1 }
         - in: query
           name: nome
-          schema:
-            type: string
+          schema: { type: string }
         - in: query
           name: cnpj
-          schema:
-            type: string
+          schema: { type: string }
         - in: query
           name: email
-          schema:
-            type: string
+          schema: { type: string }
       responses:
         '200':
-          description: Resultado da busca de clientes
+          description: Resultado da busca
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/ApiListResponse'
+              schema: { $ref: '#/components/schemas/ApiResponse' }
     post:
       operationId: criarCliente
       summary: Cria um cliente no ERP
+      description: tipo_pessoa e nome sao obrigatorios. Para empresa brasileira use tipo_pessoa PJ e informe cnpj.
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/ClienteInput'
+            schema: { $ref: '#/components/schemas/ClienteInput' }
       responses:
         '200':
           description: Cliente criado
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/ApiObjectResponse'
+              schema: { $ref: '#/components/schemas/ApiResponse' }
   /erp/produtos:
     get:
       operationId: buscarProdutos
@@ -58,24 +51,19 @@ paths:
       parameters:
         - in: query
           name: pagina
-          schema:
-            type: integer
-            default: 1
+          schema: { type: integer, default: 1 }
         - in: query
           name: nome
-          schema:
-            type: string
+          schema: { type: string }
         - in: query
           name: codigo_interno
-          schema:
-            type: string
+          schema: { type: string }
       responses:
         '200':
-          description: Resultado da busca de produtos
+          description: Produtos encontrados
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/ApiListResponse'
+              schema: { $ref: '#/components/schemas/ApiResponse' }
   /erp/usuarios:
     get:
       operationId: buscarUsuarios
@@ -83,214 +71,147 @@ paths:
       parameters:
         - in: query
           name: pagina
-          schema:
-            type: integer
-            default: 1
+          schema: { type: integer, default: 1 }
         - in: query
           name: nome
-          schema:
-            type: string
+          schema: { type: string }
       responses:
         '200':
-          description: Usuarios do ERP
+          description: Usuarios encontrados
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/ApiListResponse'
+              schema: { $ref: '#/components/schemas/ApiResponse' }
   /erp/situacoes-orcamentos:
     get:
       operationId: buscarSituacoesOrcamento
       summary: Lista situacoes disponiveis para orcamentos
       responses:
         '200':
-          description: Situacoes de orcamento
+          description: Situacoes encontradas
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/ApiListResponse'
+              schema: { $ref: '#/components/schemas/ApiResponse' }
   /erp/orcamentos:
     get:
       operationId: buscarOrcamentos
       summary: Busca orcamentos existentes
+      description: Use codigo para o numero comercial do orcamento e cliente_id para filtrar pelo cliente.
       parameters:
         - in: query
           name: pagina
-          schema:
-            type: integer
-            default: 1
+          schema: { type: integer, default: 1 }
         - in: query
           name: codigo
-          schema:
-            type: string
+          schema: { type: integer }
         - in: query
           name: cliente_id
-          schema:
-            type: string
+          schema: { type: string }
       responses:
         '200':
           description: Orcamentos encontrados
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/ApiListResponse'
+              schema: { $ref: '#/components/schemas/ApiResponse' }
     post:
       operationId: criarOrcamento
       summary: Cria um orcamento ou proposta no ERP
+      description: O campo codigo deve ser inteiro. Nao use texto como TESTE-01. Antes de criar, consulte os orcamentos existentes e escolha um codigo numerico livre.
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/OrcamentoInput'
+            schema: { $ref: '#/components/schemas/OrcamentoInput' }
       responses:
         '200':
           description: Orcamento criado
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/ApiObjectResponse'
+              schema: { $ref: '#/components/schemas/ApiResponse' }
   /erp/orcamentos/{id}:
     get:
       operationId: consultarOrcamento
-      summary: Consulta um orcamento pelo ID
+      summary: Consulta um orcamento pelo ID interno
+      description: O parametro id e o ID interno retornado no campo data.id. Nao use o codigo comercial do orcamento. Exemplo conhecido: codigo 4622 teve ID interno 391975488.
       parameters:
         - in: path
           name: id
           required: true
-          schema:
-            type: string
+          schema: { type: string }
       responses:
         '200':
           description: Orcamento encontrado
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/ApiObjectResponse'
+              schema: { $ref: '#/components/schemas/ApiResponse' }
 components:
   schemas:
-    GenericItem:
+    ApiResponse:
       type: object
       properties:
-        id:
-          type: string
-        nome:
-          type: string
-        codigo:
-          type: string
-        status:
-          type: string
-    ApiListResponse:
-      type: object
-      properties:
-        code:
-          type: integer
-        status:
-          type: string
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/GenericItem'
-    ApiObjectResponse:
-      type: object
-      properties:
-        code:
-          type: integer
-        status:
-          type: string
-        data:
-          $ref: '#/components/schemas/GenericItem'
+        code: { type: integer }
+        status: { type: string }
+        meta: { type: object, properties: {} }
+        data: { type: array, items: { type: object, properties: {} } }
     ClienteInput:
       type: object
+      required: [tipo_pessoa, nome]
       properties:
-        nome:
+        tipo_pessoa:
           type: string
-        razao_social:
-          type: string
-        cpf_cnpj:
-          type: string
-        email:
-          type: string
-        telefone:
-          type: string
-        vendedor_id:
-          type: string
+          enum: [PF, PJ, ES]
+        nome: { type: string }
+        razao_social: { type: string }
+        cnpj: { type: string }
+        cpf: { type: string }
+        inscricao_estadual: { type: string }
+        inscricao_municipal: { type: string }
+        telefone: { type: string }
+        celular: { type: string }
+        email: { type: string }
+        usuario_id: { type: string }
+        loja_id: { type: string }
     ProdutoOrcamento:
       type: object
       properties:
-        id:
-          type: string
-        nome_produto:
-          type: string
-        variacao_id:
-          type: string
-        detalhes:
-          type: string
-        quantidade:
-          type: string
-        tipo_valor_id:
-          type: string
-        nome_tipo_valor:
-          type: string
-        valor_venda:
-          type: string
-        tipo_desconto:
-          type: string
-        desconto_valor:
-          type: string
-        desconto_porcentagem:
-          type: string
+        id: { type: string }
+        nome_produto: { type: string }
+        variacao_id: { type: string }
+        detalhes: { type: string }
+        quantidade: { type: string }
+        tipo_valor_id: { type: string }
+        nome_tipo_valor: { type: string }
+        valor_venda: { type: string }
+        tipo_desconto: { type: string }
+        desconto_valor: { type: string }
+        desconto_porcentagem: { type: string }
     ProdutoWrapper:
       type: object
       properties:
-        produto:
-          $ref: '#/components/schemas/ProdutoOrcamento'
+        produto: { $ref: '#/components/schemas/ProdutoOrcamento' }
     OrcamentoInput:
       type: object
-      required:
-        - tipo
-        - codigo
-        - cliente_id
-        - data
-        - situacao_id
+      required: [tipo, codigo, cliente_id, data, situacao_id]
       properties:
-        tipo:
-          type: string
-        codigo:
-          type: string
-        cliente_id:
-          type: string
-        vendedor_id:
-          type: string
-        nome_vendedor:
-          type: string
-        data:
-          type: string
-        situacao_id:
-          type: string
-        nome_situacao:
-          type: string
-        valor_total:
-          type: number
-        validade:
-          type: string
-        introducao:
-          type: string
-        observacoes:
-          type: string
-        observacoes_interna:
-          type: string
-        valor_frete:
-          type: number
-        desconto_valor:
-          type: string
-        desconto_porcentagem:
-          type: string
-        exibir_pagamento:
-          type: string
+        tipo: { type: string }
+        codigo: { type: integer }
+        cliente_id: { type: string }
+        vendedor_id: { type: string }
+        nome_vendedor: { type: string }
+        data: { type: string }
+        situacao_id: { type: string }
+        nome_situacao: { type: string }
+        valor_total: { type: number }
+        validade: { type: string }
+        introducao: { type: string }
+        observacoes: { type: string }
+        observacoes_interna: { type: string }
+        valor_frete: { type: number }
+        desconto_valor: { type: string }
+        desconto_porcentagem: { type: string }
+        exibir_pagamento: { type: string }
         produtos:
           type: array
-          items:
-            $ref: '#/components/schemas/ProdutoWrapper'
+          items: { $ref: '#/components/schemas/ProdutoWrapper' }
   securitySchemes:
     bearerAuth:
       type: http
