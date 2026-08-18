@@ -180,10 +180,7 @@ function firstValue(objects, keys) {
 
 function proposalIdentity(proposal) {
   const customer = proposal?.cliente && typeof proposal.cliente === 'object' ? proposal.cliente : null;
-  const companyName = firstValue(
-    [customer, proposal],
-    ['razao_social', 'nome', 'cliente_nome', 'nome_cliente', 'empresa', 'cliente_razao_social']
-  );
+  const companyName = firstValue([customer, proposal], ['razao_social', 'nome', 'cliente_nome', 'nome_cliente', 'empresa', 'cliente_razao_social']);
   const email = firstValue([customer, proposal], ['email', 'cliente_email', 'email_cliente']);
   const website = firstValue([customer, proposal], ['domain', 'dominio', 'website', 'site']);
   let domain = String(website || '').trim().toLowerCase();
@@ -212,11 +209,7 @@ async function hubspotSearchExact(objectType, propertyName, value, properties = 
 async function hubspotSearchQuery(objectType, query, properties = []) {
   return hubspotRequest(`/crm/v3/objects/${objectType}/search`, {
     method: 'POST',
-    body: {
-      query: String(query),
-      properties,
-      limit: 10
-    }
+    body: { query: String(query), properties, limit: 10 }
   });
 }
 
@@ -252,29 +245,8 @@ async function getAssociatedEmails(dealId) {
 
 function stageLabel(stage, pipeline, rules) {
   const map = {
-    default: {
-      appointmentscheduled: 'Lead Gerado',
-      '1341580032': 'Reunião Agendada',
-      '20205433': 'Aguardando Proposta',
-      qualifiedtobuy: 'Proposta Enviada',
-      '10765435': 'Negociação',
-      '55772800': 'FUP',
-      '222315381': 'Final FuP',
-      '20072970': 'Ganho',
-      '55522584': 'Perdido'
-    },
-    '9501279': {
-      '9501281': 'Lead Gerado',
-      '1374787152': 'Reunião Agendada',
-      '9501282': 'Aguardando Proposta',
-      '9501283': 'Proposta Enviada',
-      '14236287': 'Negociação',
-      '55787052': 'FUP',
-      '222285129': 'Final FuP',
-      '14236286': 'Ganho',
-      '222271749': 'Pós-venda cross+upsell',
-      '55587368': 'Perdido'
-    }
+    default: { appointmentscheduled: 'Lead Gerado', '1341580032': 'Reunião Agendada', '20205433': 'Aguardando Proposta', qualifiedtobuy: 'Proposta Enviada', '10765435': 'Negociação', '55772800': 'FUP', '222315381': 'Final FuP', '20072970': 'Ganho', '55522584': 'Perdido' },
+    '9501279': { '9501281': 'Lead Gerado', '1374787152': 'Reunião Agendada', '9501282': 'Aguardando Proposta', '9501283': 'Proposta Enviada', '14236287': 'Negociação', '55787052': 'FUP', '222285129': 'Final FuP', '14236286': 'Ganho', '222271749': 'Pós-venda cross+upsell', '55587368': 'Perdido' }
   };
   if (map[pipeline]?.[stage]) return map[pipeline][stage];
   for (const typeRule of Object.values(rules.types || {})) {
@@ -287,12 +259,7 @@ function stageLabel(stage, pipeline, rules) {
 }
 
 function recommendedAction(deal, emails, rules, dealLookupStatus = 'success') {
-  if (dealLookupStatus !== 'success') {
-    return {
-      code: 'verificar_hubspot',
-      label: 'Repetir a consulta do Deal no HubSpot antes de decidir a próxima ação'
-    };
-  }
+  if (dealLookupStatus !== 'success') return { code: 'verificar_hubspot', label: 'Repetir a consulta do Deal no HubSpot antes de decidir a próxima ação' };
   if (!deal) return { code: 'criar_deal', label: 'Criar Deal no HubSpot a partir da proposta do ERP' };
   const pipeline = String(deal?.properties?.pipeline || '');
   const stage = String(deal?.properties?.dealstage || '');
@@ -300,13 +267,7 @@ function recommendedAction(deal, emails, rules, dealLookupStatus = 'success') {
   if (label === 'Ganho') return { code: 'ganho_concluido', label: 'Negócio já marcado como Ganho' };
   if (label === 'Perdido') return { code: 'perdido_concluido', label: 'Negócio já marcado como Perdido' };
   if (label === 'Aguardando Proposta') return { code: 'enviar_proposta', label: 'Preparar e enviar a proposta; registrar o e-mail e mover para Proposta Enviada' };
-  if (['Proposta Enviada', 'Negociação', 'FUP', 'Final FuP'].includes(label)) {
-    return {
-      code: 'analisar_followup',
-      label: 'Analisar o negócio e o histórico de e-mails para decidir o próximo follow-up',
-      last_email_at: emails?.[0]?.properties?.hs_timestamp || null
-    };
-  }
+  if (['Proposta Enviada', 'Negociação', 'FUP', 'Final FuP'].includes(label)) return { code: 'analisar_followup', label: 'Analisar o negócio e o histórico de e-mails para decidir o próximo follow-up', last_email_at: emails?.[0]?.properties?.hs_timestamp || null };
   return { code: 'acompanhar_negocio', label: 'Acompanhar o negócio conforme a etapa atual' };
 }
 
@@ -326,6 +287,40 @@ app.get('/health', (req, res) => {
   });
 });
 
+app.get('/erp/hubspot/health', auth, async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    const result = await hubspotRequest('/crm/v3/objects/contacts?limit=1&properties=email');
+    return res.status(200).json({
+      status: 'ok',
+      hubspot: {
+        configured: Boolean(HUBSPOT_ACCESS_TOKEN),
+        authenticated: true,
+        api_base_url: HUBSPOT_BASE_URL,
+        probe: 'contacts_read',
+        sample_count: Array.isArray(result?.results) ? result.results.length : 0,
+        latency_ms: Date.now() - startedAt
+      }
+    });
+  } catch (err) {
+    const diagnostic = diagnosticError(err);
+    return res.status(200).json({
+      status: 'error',
+      hubspot: {
+        configured: Boolean(HUBSPOT_ACCESS_TOKEN),
+        authenticated: false,
+        api_base_url: HUBSPOT_BASE_URL,
+        probe: 'contacts_read',
+        http_status: diagnostic.status,
+        error_source: diagnostic.source,
+        error_message: diagnostic.message,
+        error_details: diagnostic.details,
+        latency_ms: Date.now() - startedAt
+      }
+    });
+  }
+});
+
 app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
   try {
     const numero = String(req.params.numero || '').trim();
@@ -334,12 +329,7 @@ app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
     const erpSearch = await legacyRequest(`/erp/orcamentos?codigo=${encodeURIComponent(numero)}`);
     const summary = findProposalByNumber(erpSearch, numero);
     if (!summary) {
-      return res.status(404).json({
-        error: 'proposal_not_found',
-        numero_proposta: numero,
-        message: `Proposta ${numero} nao encontrada no ERP`,
-        erp_search: erpSearch
-      });
+      return res.status(404).json({ error: 'proposal_not_found', numero_proposta: numero, message: `Proposta ${numero} nao encontrada no ERP`, erp_search: erpSearch });
     }
 
     const internalId = summary.id ?? summary.orcamento_id ?? summary.id_orcamento ?? null;
@@ -358,17 +348,11 @@ app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
     }
 
     const identity = proposalIdentity(erpDetail);
-
     let deal = null;
     let dealLookupStatus = 'success';
     let dealLookupError = null;
     try {
-      const dealSearch = await hubspotSearchExact(
-        'deals',
-        'numero_da_proposta',
-        numero,
-        ['dealname', 'numero_da_proposta', 'link_da_proposta', 'pipeline', 'dealstage', 'amount', 'deal_currency_code', 'solucao', 'hubspot_owner_id', 'createdate', 'hs_lastmodifieddate']
-      );
+      const dealSearch = await hubspotSearchExact('deals', 'numero_da_proposta', numero, ['dealname', 'numero_da_proposta', 'link_da_proposta', 'pipeline', 'dealstage', 'amount', 'deal_currency_code', 'solucao', 'hubspot_owner_id', 'createdate', 'hs_lastmodifieddate']);
       deal = dealSearch?.results?.[0] || null;
     } catch (err) {
       dealLookupStatus = 'error';
@@ -402,24 +386,16 @@ app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
     let contactsLookupStatus = company?.id ? 'success' : 'skipped';
     let contactsLookupError = null;
     if (company?.id) {
-      try {
-        contacts = await getAssociatedContacts(company.id);
-      } catch (err) {
-        contactsLookupStatus = 'error';
-        contactsLookupError = diagnosticError(err);
-      }
+      try { contacts = await getAssociatedContacts(company.id); }
+      catch (err) { contactsLookupStatus = 'error'; contactsLookupError = diagnosticError(err); }
     }
 
     let emails = [];
     let emailLookupStatus = deal?.id ? 'success' : 'skipped';
     let emailLookupError = null;
     if (deal?.id) {
-      try {
-        emails = await getAssociatedEmails(deal.id);
-      } catch (err) {
-        emailLookupStatus = 'error';
-        emailLookupError = diagnosticError(err);
-      }
+      try { emails = await getAssociatedEmails(deal.id); }
+      catch (err) { emailLookupStatus = 'error'; emailLookupError = diagnosticError(err); }
     }
 
     const rules = loadProposalRules();
@@ -430,19 +406,8 @@ app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
     res.json({
       status: partial ? 'partial_success' : 'success',
       numero_proposta: numero,
-      source_of_truth: {
-        proposal: 'ERP Betel',
-        crm: 'HubSpot',
-        email_history: 'HubSpot EMAIL engagements registered after Outlook send'
-      },
-      erp: {
-        found: true,
-        internal_id: internalId ? String(internalId) : null,
-        detail_lookup_status: erpDetailStatus,
-        detail_lookup_error: erpDetailError,
-        identity,
-        proposal: erpDetail
-      },
+      source_of_truth: { proposal: 'ERP Betel', crm: 'HubSpot', email_history: 'HubSpot EMAIL engagements registered after Outlook send' },
+      erp: { found: true, internal_id: internalId ? String(internalId) : null, detail_lookup_status: erpDetailStatus, detail_lookup_error: erpDetailError, identity, proposal: erpDetail },
       hubspot: {
         deal_lookup_status: dealLookupStatus,
         deal_lookup_error: dealLookupError,
@@ -462,10 +427,7 @@ app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
         email_history: emails,
         last_email: emails[0] || null
       },
-      commercial: {
-        next_action: recommendedAction(deal, emails, rules, dealLookupStatus),
-        workflow: rules.workflow || null
-      }
+      commercial: { next_action: recommendedAction(deal, emails, rules, dealLookupStatus), workflow: rules.workflow || null }
     });
   } catch (err) {
     handleError(err, res);
@@ -475,18 +437,11 @@ app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
 app.post('/erp/hubspot/emails/registrar-envio', auth, async (req, res) => {
   try {
     const body = req.body || {};
-    if (body.envio_confirmado !== true) {
-      throw requestError('envio_confirmado deve ser true. Esta rota registra apenas e-mails realmente enviados pelo Outlook.', { field: 'envio_confirmado' });
-    }
-
+    if (body.envio_confirmado !== true) throw requestError('envio_confirmado deve ser true. Esta rota registra apenas e-mails realmente enviados pelo Outlook.', { field: 'envio_confirmado' });
     const remetenteEmail = String(body.remetente?.email || body.remetente_email || '').trim().toLowerCase();
     if (!remetenteEmail || !remetenteEmail.includes('@')) throw requestError('remetente.email e obrigatorio', { field: 'remetente.email' });
-
-    if (!Array.isArray(body.destinatarios) || body.destinatarios.length === 0) {
-      throw requestError('destinatarios deve conter pelo menos um destinatario', { field: 'destinatarios' });
-    }
+    if (!Array.isArray(body.destinatarios) || body.destinatarios.length === 0) throw requestError('destinatarios deve conter pelo menos um destinatario', { field: 'destinatarios' });
     if (body.destinatarios.length > 10) throw requestError('destinatarios aceita no maximo 10 itens', { field: 'destinatarios' });
-
     const destinatarios = body.destinatarios.map((item, index) => normalizeRecipient(item, index));
     const cc = normalizeOptionalRecipients(body.cc, 'cc');
     const bcc = normalizeOptionalRecipients(body.bcc, 'bcc');
@@ -494,56 +449,25 @@ app.post('/erp/hubspot/emails/registrar-envio', auth, async (req, res) => {
     const texto = String(body.texto || '').trim();
     if (!assunto) throw requestError('assunto e obrigatorio', { field: 'assunto' });
     if (!texto) throw requestError('texto e obrigatorio', { field: 'texto' });
-
     const timestamp = body.enviado_em ? new Date(body.enviado_em) : new Date();
     if (Number.isNaN(timestamp.getTime())) throw requestError('enviado_em deve ser uma data/hora ISO valida', { field: 'enviado_em' });
 
     const headers = {
-      from: {
-        email: remetenteEmail,
-        firstName: String(body.remetente?.firstName || body.remetente?.firstname || body.remetente?.nome || '').trim(),
-        lastName: String(body.remetente?.lastName || body.remetente?.lastname || body.remetente?.sobrenome || '').trim()
-      },
-      sender: {
-        email: remetenteEmail,
-        firstName: String(body.remetente?.firstName || body.remetente?.firstname || body.remetente?.nome || '').trim(),
-        lastName: String(body.remetente?.lastName || body.remetente?.lastname || body.remetente?.sobrenome || '').trim()
-      },
-      to: destinatarios,
-      cc,
-      bcc
+      from: { email: remetenteEmail, firstName: String(body.remetente?.firstName || body.remetente?.firstname || body.remetente?.nome || '').trim(), lastName: String(body.remetente?.lastName || body.remetente?.lastname || body.remetente?.sobrenome || '').trim() },
+      sender: { email: remetenteEmail, firstName: String(body.remetente?.firstName || body.remetente?.firstname || body.remetente?.nome || '').trim(), lastName: String(body.remetente?.lastName || body.remetente?.lastname || body.remetente?.sobrenome || '').trim() },
+      to: destinatarios, cc, bcc
     };
 
-    const properties = {
-      hs_timestamp: timestamp.toISOString(),
-      hs_email_direction: 'EMAIL',
-      hs_email_status: 'SENT',
-      hs_email_subject: assunto,
-      hs_email_text: texto,
-      hs_email_headers: JSON.stringify(headers)
-    };
+    const properties = { hs_timestamp: timestamp.toISOString(), hs_email_direction: 'EMAIL', hs_email_status: 'SENT', hs_email_subject: assunto, hs_email_text: texto, hs_email_headers: JSON.stringify(headers) };
     if (body.hubspot_owner_id) properties.hubspot_owner_id = String(body.hubspot_owner_id);
-
-    const email = await hubspotRequest('/crm/v3/objects/emails', {
-      method: 'POST',
-      body: { properties }
-    });
+    const email = await hubspotRequest('/crm/v3/objects/emails', { method: 'POST', body: { properties } });
 
     const associationResults = [];
     const associationFailures = [];
-    const targets = [
-      body.deal_id ? { type: 'deals', id: body.deal_id } : null,
-      body.company_id ? { type: 'companies', id: body.company_id } : null,
-      ...(Array.isArray(body.contact_ids) ? body.contact_ids.map(id => ({ type: 'contacts', id })) : [])
-    ].filter(Boolean);
-
+    const targets = [body.deal_id ? { type: 'deals', id: body.deal_id } : null, body.company_id ? { type: 'companies', id: body.company_id } : null, ...(Array.isArray(body.contact_ids) ? body.contact_ids.map(id => ({ type: 'contacts', id })) : [])].filter(Boolean);
     for (const target of targets) {
-      try {
-        await associateEmail(email.id, target.type, target.id);
-        associationResults.push(target);
-      } catch (err) {
-        associationFailures.push({ target, status: err.status || 500, details: err.data || err.message });
-      }
+      try { await associateEmail(email.id, target.type, target.id); associationResults.push(target); }
+      catch (err) { associationFailures.push({ target, status: err.status || 500, details: err.data || err.message }); }
     }
 
     let dealStageUpdate = null;
@@ -553,27 +477,10 @@ app.post('/erp/hubspot/emails/registrar-envio', auth, async (req, res) => {
       const rules = loadProposalRules();
       const typeRule = rules.types?.[tipo];
       if (!typeRule) throw requestError('tipo_proposta invalido para atualizar a etapa', { field: 'tipo_proposta', allowed: Object.keys(rules.types || {}) });
-      dealStageUpdate = await hubspotRequest(`/crm/v3/objects/deals/${encodeURIComponent(body.deal_id)}`, {
-        method: 'PATCH',
-        body: { properties: { dealstage: typeRule.hubspot_stage_proposta_enviada } }
-      });
+      dealStageUpdate = await hubspotRequest(`/crm/v3/objects/deals/${encodeURIComponent(body.deal_id)}`, { method: 'PATCH', body: { properties: { dealstage: typeRule.hubspot_stage_proposta_enviada } } });
     }
 
-    res.status(201).json({
-      status: associationFailures.length ? 'partial_success' : 'success',
-      email: {
-        id: email.id,
-        subject: assunto,
-        status: 'SENT',
-        direction: 'EMAIL',
-        timestamp: timestamp.toISOString(),
-        outlook_message_id: body.outlook_message_id || null
-      },
-      associations: associationResults,
-      association_failures: associationFailures,
-      deal_stage_updated: Boolean(dealStageUpdate),
-      deal: dealStageUpdate
-    });
+    res.status(201).json({ status: associationFailures.length ? 'partial_success' : 'success', email: { id: email.id, subject: assunto, status: 'SENT', direction: 'EMAIL', timestamp: timestamp.toISOString(), outlook_message_id: body.outlook_message_id || null }, associations: associationResults, association_failures: associationFailures, deal_stage_updated: Boolean(dealStageUpdate), deal: dealStageUpdate });
   } catch (err) {
     handleError(err, res);
   }
@@ -582,69 +489,32 @@ app.post('/erp/hubspot/emails/registrar-envio', auth, async (req, res) => {
 app.post('/erp/hubspot/negocios/:id/marcar-ganho', auth, async (req, res) => {
   try {
     const body = req.body || {};
-    if (body.confirmacao_ganho !== true) {
-      throw requestError('confirmacao_ganho deve ser true. O negocio so pode ser marcado como ganho apos confirmacao explicita do usuario.', { field: 'confirmacao_ganho' });
-    }
-
+    if (body.confirmacao_ganho !== true) throw requestError('confirmacao_ganho deve ser true. O negocio so pode ser marcado como ganho apos confirmacao explicita do usuario.', { field: 'confirmacao_ganho' });
     const tipo = String(body.tipo_proposta || '').trim().toLowerCase();
     const rules = loadProposalRules();
     const typeRule = rules.types?.[tipo];
     if (!typeRule) throw requestError('tipo_proposta invalido', { field: 'tipo_proposta', allowed: Object.keys(rules.types || {}) });
     if (!typeRule.hubspot_stage_ganho) throw requestError('Etapa Ganho nao configurada para este tipo de proposta', { field: 'tipo_proposta' });
-
     const wonRules = rules.deal_won || {};
     const allowedReasons = wonRules.allowed_reasons || [];
-    const rawReasons = Array.isArray(body.motivos_ganho)
-      ? body.motivos_ganho
-      : (body.motivo_ganho ? [body.motivo_ganho] : []);
+    const rawReasons = Array.isArray(body.motivos_ganho) ? body.motivos_ganho : (body.motivo_ganho ? [body.motivo_ganho] : []);
     const reasons = [...new Set(rawReasons.map(value => String(value || '').trim()).filter(Boolean))];
     if (reasons.length === 0) throw requestError('motivos_ganho deve conter pelo menos um motivo', { field: 'motivos_ganho', allowed: allowedReasons });
     const invalidReasons = reasons.filter(reason => !allowedReasons.includes(reason));
-    if (invalidReasons.length) {
-      throw requestError('Um ou mais motivos_ganho sao invalidos', { field: 'motivos_ganho', invalid: invalidReasons, allowed: allowedReasons });
-    }
-    if (wonRules.allow_multiple_reasons === false && reasons.length > 1) {
-      throw requestError('A configuracao atual permite somente um motivo de ganho', { field: 'motivos_ganho' });
-    }
+    if (invalidReasons.length) throw requestError('Um ou mais motivos_ganho sao invalidos', { field: 'motivos_ganho', invalid: invalidReasons, allowed: allowedReasons });
+    if (wonRules.allow_multiple_reasons === false && reasons.length > 1) throw requestError('A configuracao atual permite somente um motivo de ganho', { field: 'motivos_ganho' });
 
     const dealId = String(req.params.id || '').trim();
     const currentDeal = await hubspotRequest(`/crm/v3/objects/deals/${encodeURIComponent(dealId)}?properties=dealname,pipeline,dealstage,numero_da_proposta`);
     const currentPipeline = String(currentDeal?.properties?.pipeline || '');
-    if (currentPipeline !== String(typeRule.hubspot_pipeline)) {
-      throw requestError('O pipeline atual do negocio nao corresponde ao tipo_proposta informado. Nenhuma alteracao foi feita.', {
-        deal_id: dealId,
-        current_pipeline: currentPipeline,
-        expected_pipeline: typeRule.hubspot_pipeline,
-        tipo_proposta: tipo
-      });
-    }
+    if (currentPipeline !== String(typeRule.hubspot_pipeline)) throw requestError('O pipeline atual do negocio nao corresponde ao tipo_proposta informado. Nenhuma alteracao foi feita.', { deal_id: dealId, current_pipeline: currentPipeline, expected_pipeline: typeRule.hubspot_pipeline, tipo_proposta: tipo });
 
     const reasonProperty = wonRules.reason_property || 'descricao_motivo_ganho__clonado_';
     const separator = String(wonRules.separator || ';');
     const serializedReasons = reasons.join(separator);
-    const updatedDeal = await hubspotRequest(`/crm/v3/objects/deals/${encodeURIComponent(dealId)}`, {
-      method: 'PATCH',
-      body: {
-        properties: {
-          dealstage: String(typeRule.hubspot_stage_ganho),
-          [reasonProperty]: serializedReasons
-        }
-      }
-    });
+    const updatedDeal = await hubspotRequest(`/crm/v3/objects/deals/${encodeURIComponent(dealId)}`, { method: 'PATCH', body: { properties: { dealstage: String(typeRule.hubspot_stage_ganho), [reasonProperty]: serializedReasons } } });
 
-    res.json({
-      status: 'success',
-      deal: updatedDeal,
-      deal_id: dealId,
-      deal_name: currentDeal?.properties?.dealname || null,
-      numero_proposta: currentDeal?.properties?.numero_da_proposta || null,
-      tipo_proposta: tipo,
-      pipeline: typeRule.hubspot_pipeline,
-      etapa_anterior: currentDeal?.properties?.dealstage || null,
-      etapa_ganho: typeRule.hubspot_stage_ganho,
-      motivos_ganho: reasons,
-      motivo_property: reasonProperty
-    });
+    res.json({ status: 'success', deal: updatedDeal, deal_id: dealId, deal_name: currentDeal?.properties?.dealname || null, numero_proposta: currentDeal?.properties?.numero_da_proposta || null, tipo_proposta: tipo, pipeline: typeRule.hubspot_pipeline, etapa_anterior: currentDeal?.properties?.dealstage || null, etapa_ganho: typeRule.hubspot_stage_ganho, motivos_ganho: reasons, motivo_property: reasonProperty });
   } catch (err) {
     handleError(err, res);
   }
@@ -657,18 +527,12 @@ async function proxyToLegacy(req, res) {
       if (['host', 'content-length', 'connection'].includes(key.toLowerCase())) continue;
       if (value !== undefined) headers[key] = Array.isArray(value) ? value.join(',') : String(value);
     }
-
     let body;
     if (!['GET', 'HEAD'].includes(req.method.toUpperCase())) {
       body = req.body === undefined ? undefined : JSON.stringify(req.body);
       headers['content-type'] = 'application/json';
     }
-
-    const response = await fetch(`http://127.0.0.1:${INTERNAL_PORT}${req.originalUrl}`, {
-      method: req.method,
-      headers,
-      body
-    });
+    const response = await fetch(`http://127.0.0.1:${INTERNAL_PORT}${req.originalUrl}`, { method: req.method, headers, body });
     const buffer = Buffer.from(await response.arrayBuffer());
     res.status(response.status);
     const contentType = response.headers.get('content-type');
@@ -681,14 +545,8 @@ async function proxyToLegacy(req, res) {
 
 app.use(proxyToLegacy);
 
-const child = spawn(process.execPath, ['server.js'], {
-  env: { ...process.env, PORT: String(INTERNAL_PORT) },
-  stdio: 'inherit'
-});
-
-child.on('exit', (code, signal) => {
-  console.error(`Legacy connector exited code=${code} signal=${signal}`);
-});
+const child = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(INTERNAL_PORT) }, stdio: 'inherit' });
+child.on('exit', (code, signal) => { console.error(`Legacy connector exited code=${code} signal=${signal}`); });
 
 function shutdown(signal) {
   console.log(`Gateway received ${signal}`);
