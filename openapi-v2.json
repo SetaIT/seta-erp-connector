@@ -2,115 +2,57 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Seta Telecom ERP Connector",
-    "version": "1.0.7-json",
+    "version": "1.0.8-json",
     "description": "Conector seguro entre ChatGPT Actions, ERP Betel e HubSpot para o fluxo comercial da Seta Telecom."
   },
   "servers": [{"url": "https://seta-erp-connector-production-1255.up.railway.app"}],
   "paths": {
     "/erp/clientes": {
-      "get": {
-        "operationId": "buscarClientes",
-        "summary": "Busca clientes no ERP",
-        "parameters": [
-          {"name":"pagina","in":"query","schema":{"type":"integer","default":1}},
-          {"name":"nome","in":"query","schema":{"type":"string"}},
-          {"name":"cnpj","in":"query","schema":{"type":"string"}},
-          {"name":"email","in":"query","schema":{"type":"string"}}
-        ],
-        "responses": {"200":{"description":"Resultado da busca"}}
-      },
-      "post": {
-        "operationId": "criarCliente",
-        "summary": "Cria um cliente no ERP",
-        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tipo_pessoa","nome"],"properties":{
-          "tipo_pessoa":{"type":"string","enum":["PF","PJ","ES"]},
-          "nome":{"type":"string"},"razao_social":{"type":"string"},"cnpj":{"type":"string"},"cpf":{"type":"string"},"email":{"type":"string"},"telefone":{"type":"string"},"celular":{"type":"string"},"usuario_id":{"type":"string"},"loja_id":{"type":"string"}
-        }}}}},
-        "responses": {"200":{"description":"Cliente criado"}}
-      }
+      "get": {"operationId":"buscarClientes","summary":"Busca clientes no ERP","parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"nome","in":"query","schema":{"type":"string"}},{"name":"cnpj","in":"query","schema":{"type":"string"}},{"name":"email","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Resultado da busca"}}},
+      "post": {"operationId":"criarCliente","summary":"Cria um cliente no ERP","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tipo_pessoa","nome"],"properties":{"tipo_pessoa":{"type":"string","enum":["PF","PJ","ES"]},"nome":{"type":"string"},"razao_social":{"type":"string"},"cnpj":{"type":"string"},"cpf":{"type":"string"},"email":{"type":"string"},"telefone":{"type":"string"},"celular":{"type":"string"},"usuario_id":{"type":"string"},"loja_id":{"type":"string"}}}}}},"responses":{"200":{"description":"Cliente criado"}}}
     },
-    "/erp/produtos": {
-      "get": {
-        "operationId":"buscarProdutos","summary":"Busca produtos no ERP",
-        "parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"nome","in":"query","schema":{"type":"string"}},{"name":"codigo_interno","in":"query","schema":{"type":"string"}}],
-        "responses":{"200":{"description":"Produtos encontrados"}}
-      }
-    },
-    "/erp/usuarios": {
-      "get":{"operationId":"buscarUsuarios","summary":"Lista ou busca usuarios e vendedores do ERP","parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"nome","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Usuarios encontrados"}}}
-    },
-    "/erp/situacoes-orcamentos": {
-      "get":{"operationId":"buscarSituacoesOrcamento","summary":"Lista situacoes disponiveis para orcamentos","responses":{"200":{"description":"Situacoes encontradas"}}}
-    },
+    "/erp/produtos": {"get":{"operationId":"buscarProdutos","summary":"Busca produtos no ERP","parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"nome","in":"query","schema":{"type":"string"}},{"name":"codigo_interno","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Produtos encontrados"}}}},
+    "/erp/usuarios": {"get":{"operationId":"buscarUsuarios","summary":"Lista ou busca usuarios e vendedores do ERP","parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"nome","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Usuarios encontrados"}}}},
+    "/erp/situacoes-orcamentos": {"get":{"operationId":"buscarSituacoesOrcamento","summary":"Lista situacoes disponiveis para orcamentos","responses":{"200":{"description":"Situacoes encontradas"}}}},
     "/erp/orcamentos": {
-      "get": {
-        "operationId":"buscarOrcamentos","summary":"Busca orcamentos existentes",
-        "parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"codigo","in":"query","description":"Codigo comercial numerico da proposta","schema":{"type":"integer"}},{"name":"cliente_id","in":"query","schema":{"type":"string"}}],
-        "responses":{"200":{"description":"Orcamentos encontrados"}}
-      },
-      "post": {
-        "operationId":"criarOrcamento",
-        "summary":"Cria uma proposta no ERP com regras comerciais da Seta",
-        "description":"Antes de criar, pergunte obrigatoriamente o tipo da proposta e a solucao. Locacao e SpareParts exigem quantidade de meses. O conector monta automaticamente o campo Introducao. Exija confirmacao explicita do usuario imediatamente antes da gravacao.",
-        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tipo","codigo","cliente_id","data","situacao_id","tipo_proposta","solucao","produtos"],"properties":{
-          "tipo":{"type":"string"},
-          "codigo":{"type":"integer","description":"Consulte explicitamente este codigo antes de criar para evitar duplicidade."},
-          "cliente_id":{"type":"string"},"vendedor_id":{"type":"string"},"data":{"type":"string"},"situacao_id":{"type":"string"},"validade":{"type":"string"},
-          "tipo_proposta":{"type":"string","enum":["locacao","compra","spareparts"],"description":"Sempre perguntar ao usuario antes da criacao."},
-          "solucao":{"type":"string","description":"Ex.: Locacao de Servidores. Sera usada no nome do Deal."},
-          "meses":{"type":"integer","minimum":1,"description":"Obrigatorio para locacao e SpareParts."},
-          "moeda":{"type":"string","enum":["BRL","USD"],"default":"BRL"},
-          "introducao":{"type":"string","description":"O conector substitui automaticamente pela introducao padronizada."},
-          "observacoes":{"type":"string"},"observacoes_interna":{"type":"string"},"valor_frete":{"type":"number"},"desconto_valor":{"type":"string"},"desconto_porcentagem":{"type":"string"},
-          "produtos":{"type":"array","minItems":1,"items":{"type":"object","properties":{"produto":{"type":"object","required":["id","quantidade","valor_venda"],"properties":{"id":{"type":"string"},"variacao_id":{"type":"string"},"quantidade":{"type":"string"},"valor_venda":{"type":"string"},"tipo_valor_id":{"type":"string"}}}}}}
-        }}}}},
-        "responses":{"200":{"description":"Proposta criada; inclui proposal, commercial e introducao_enviada"},"400":{"description":"Regra comercial invalida ou campo obrigatorio ausente"}}
-      }
+      "get": {"operationId":"buscarOrcamentos","summary":"Busca orcamentos existentes","parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"codigo","in":"query","description":"Codigo comercial numerico da proposta","schema":{"type":"integer"}},{"name":"cliente_id","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Orcamentos encontrados"}}},
+      "post": {"operationId":"criarOrcamento","summary":"Cria uma proposta no ERP com regras comerciais da Seta","description":"Antes de criar, pergunte obrigatoriamente o tipo da proposta e a solucao. Locacao e SpareParts exigem quantidade de meses. O conector monta automaticamente o campo Introducao. Exija confirmacao explicita do usuario imediatamente antes da gravacao.","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tipo","codigo","cliente_id","data","situacao_id","tipo_proposta","solucao","produtos"],"properties":{"tipo":{"type":"string"},"codigo":{"type":"integer","description":"Consulte explicitamente este codigo antes de criar para evitar duplicidade."},"cliente_id":{"type":"string"},"vendedor_id":{"type":"string"},"data":{"type":"string"},"situacao_id":{"type":"string"},"validade":{"type":"string"},"tipo_proposta":{"type":"string","enum":["locacao","compra","spareparts"]},"solucao":{"type":"string"},"meses":{"type":"integer","minimum":1},"moeda":{"type":"string","enum":["BRL","USD"],"default":"BRL"},"introducao":{"type":"string"},"observacoes":{"type":"string"},"observacoes_interna":{"type":"string"},"valor_frete":{"type":"number"},"desconto_valor":{"type":"string"},"desconto_porcentagem":{"type":"string"},"produtos":{"type":"array","minItems":1,"items":{"type":"object","properties":{"produto":{"type":"object","required":["id","quantidade","valor_venda"],"properties":{"id":{"type":"string"},"variacao_id":{"type":"string"},"quantidade":{"type":"string"},"valor_venda":{"type":"string"},"tipo_valor_id":{"type":"string"}}}}}}}}}}},"responses":{"200":{"description":"Proposta criada"},"400":{"description":"Regra comercial invalida"}}}
     },
-    "/erp/orcamentos/{id}": {
-      "get":{"operationId":"consultarOrcamento","summary":"Consulta um orcamento pelo ID interno","description":"Use o ID interno retornado pelo ERP, nao o codigo comercial.","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Orcamento encontrado"}}}
-    },
-    "/erp/hubspot/empresas": {
-      "get":{"operationId":"buscarEmpresaHubSpot","summary":"Busca empresa no HubSpot pelo dominio","description":"Use o dominio da empresa como chave de busca no HubSpot. Nao use CNPJ.","parameters":[{"name":"domain","in":"query","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Resultado da busca"},"503":{"description":"HubSpot ainda nao configurado no conector"}}}
-    },
-    "/erp/hubspot/contatos": {
-      "get":{"operationId":"buscarContatoHubSpot","summary":"Busca contato no HubSpot pelo e-mail","parameters":[{"name":"email","in":"query","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Resultado da busca"},"503":{"description":"HubSpot ainda nao configurado no conector"}}}
-    },
-    "/erp/hubspot/negocios": {
-      "get":{"operationId":"buscarNegocioPorProposta","summary":"Verifica se ja existe Deal para um numero de proposta","description":"Sempre execute antes de criar um Deal para evitar duplicidade.","parameters":[{"name":"numero_proposta","in":"query","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Resultado da busca"},"503":{"description":"HubSpot ainda nao configurado no conector"}}}
-    },
+    "/erp/orcamentos/{id}": {"get":{"operationId":"consultarOrcamento","summary":"Consulta um orcamento pelo ID interno","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Orcamento encontrado"}}}},
+    "/erp/hubspot/configuracao-proposta": {"get":{"operationId":"buscarConfiguracaoComercialHubSpot","summary":"Retorna regras do fluxo de propostas, Deal e template de e-mail","description":"Use para conhecer pipeline, etapas, regra de valor de locacao e o template padrao. O envio real de Sales Template pela caixa conectada nao e exposto pela API publica usada pelo conector.","responses":{"200":{"description":"Configuracao comercial"}}}},
+    "/erp/hubspot/empresas": {"get":{"operationId":"buscarEmpresaHubSpot","summary":"Busca empresa no HubSpot pelo dominio","parameters":[{"name":"domain","in":"query","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Resultado da busca"},"503":{"description":"HubSpot nao configurado"}}}},
+    "/erp/hubspot/empresas/{id}/contatos": {"get":{"operationId":"buscarContatosDaEmpresaHubSpot","summary":"Lista contatos associados a uma empresa no HubSpot","description":"Use antes de criar o Deal para permitir que o usuario escolha um ou mais destinatarios sem duplicar contatos.","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Contatos associados"}}}},
+    "/erp/hubspot/contatos": {"get":{"operationId":"buscarContatoHubSpot","summary":"Busca contato no HubSpot pelo e-mail","parameters":[{"name":"email","in":"query","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Resultado da busca"}}}},
+    "/erp/hubspot/negocios": {"get":{"operationId":"buscarNegocioPorProposta","summary":"Verifica se ja existe Deal para um numero de proposta","description":"Sempre execute antes de criar um Deal.","parameters":[{"name":"numero_proposta","in":"query","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Resultado da busca"}}}},
     "/erp/hubspot/negocios-da-proposta": {
       "post": {
         "operationId":"criarNegocioHubSpotDaProposta",
-        "summary":"Cria o Deal no HubSpot a partir de uma proposta ja criada no ERP",
-        "description":"Somente use depois que a proposta existir no ERP e o link real da proposta estiver disponivel. O conector verifica duplicidade pelo numero, busca/cria a empresa pelo dominio, opcionalmente busca/cria o contato, cria o Deal no pipeline correspondente ao tipo e associa empresa/contato. O Deal nasce em Aguardando Proposta; depois do envio do e-mail devera ser movido para Proposta Enviada.",
-        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["numero_proposta","empresa","domain","solucao","link_proposta","tipo_proposta","valor_negocio"],"properties":{
-          "numero_proposta":{"type":"string"},
-          "empresa":{"type":"string"},
-          "domain":{"type":"string","description":"Dominio da empresa no HubSpot, ex.: empresa.com.br"},
-          "solucao":{"type":"string","description":"Forma o nome: Numero - Empresa - Solucao"},
-          "link_proposta":{"type":"string","description":"Link real gerado pelo ERP. Nunca invente o link."},
-          "tipo_proposta":{"type":"string","enum":["locacao","compra","spareparts"]},
-          "valor_negocio":{"type":"number","description":"Valor a registrar no campo Amount do Deal. Nao inferir regra de valor total do contrato sem regra comercial definida."},
-          "moeda":{"type":"string","enum":["BRL","USD"],"default":"BRL"},
-          "contato_email":{"type":"string"},
-          "contato_nome":{"type":"string"},
-          "contato_sobrenome":{"type":"string"},
-          "hubspot_owner_id":{"type":"string","description":"Opcional. Nao copiar automaticamente owner inativo da empresa e nao inventar equivalencia do vendedor IA."}
-        }}}}},
-        "responses":{"200":{"description":"Deal criado e associado"},"409":{"description":"Ja existe Deal com este numero de proposta"},"503":{"description":"HUBSPOT_ACCESS_TOKEN nao configurado"}}
+        "summary":"Cria Deal a partir de proposta do ERP, com solucao e todos os contatos selecionados",
+        "description":"Exija confirmacao antes da gravacao. O conector verifica duplicidade, busca/cria empresa, busca/cria e associa todos os contatos informados, preenche Solucao e cria o Deal em Aguardando Proposta. Para locacao, prefira enviar valor_mensal e meses: o conector grava amount = valor_mensal x meses. O envio do Sales Template continua ocorrendo no HubSpot; somente depois de envio real confirmado use marcarPropostaEnviadaHubSpot.",
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["numero_proposta","empresa","domain","solucao","link_proposta","tipo_proposta"],"properties":{"numero_proposta":{"type":"string"},"empresa":{"type":"string"},"domain":{"type":"string"},"solucao":{"type":"string","description":"Valor do campo Solucao do Deal, ex.: Locação de Servidores."},"link_proposta":{"type":"string","description":"Link real gerado pelo ERP. Nunca invente o link."},"tipo_proposta":{"type":"string","enum":["locacao","compra","spareparts"]},"valor_mensal":{"type":"number","description":"Para locacao, use este campo junto com meses. O amount sera calculado como valor mensal x meses."},"meses":{"type":"integer","minimum":1,"description":"Obrigatorio para locacao quando valor_mensal for usado."},"valor_negocio":{"type":"number","description":"Use para compra ou quando o valor contratual ja estiver explicitamente definido."},"moeda":{"type":"string","enum":["BRL","USD"],"default":"BRL"},"contatos":{"type":"array","description":"Todos os contatos selecionados para receber a proposta. Todos serao associados ao Deal.","items":{"type":"object","required":["email"],"properties":{"email":{"type":"string"},"nome":{"type":"string"},"sobrenome":{"type":"string"}}}},"contato_email":{"type":"string","description":"Compatibilidade com versao anterior; prefira contatos[]."},"contato_nome":{"type":"string"},"contato_sobrenome":{"type":"string"},"hubspot_owner_id":{"type":"string"}}}}}},
+        "responses":{"200":{"description":"Deal criado e associado"},"409":{"description":"Deal duplicado"},"503":{"description":"HubSpot nao configurado"}}
+      }
+    },
+    "/erp/hubspot/negocios/{id}/marcar-proposta-enviada": {
+      "post": {
+        "operationId":"marcarPropostaEnviadaHubSpot",
+        "summary":"Move o Deal para Proposta Enviada somente depois do envio real do e-mail",
+        "description":"Nao execute antes do envio. Exija confirmacao de que o e-mail foi efetivamente enviado pelo HubSpot. envio_confirmado deve ser true.",
+        "parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tipo_proposta","envio_confirmado"],"properties":{"tipo_proposta":{"type":"string","enum":["locacao","compra","spareparts"]},"envio_confirmado":{"type":"boolean","const":true},"solucao":{"type":"string"}}}}}},
+        "responses":{"200":{"description":"Deal movido para Proposta Enviada"},"400":{"description":"Envio ainda nao confirmado"}}
       }
     },
     "/erp/recebimentos": {
-      "get":{"operationId":"buscarRecebimentos","summary":"Busca recebimentos financeiros no ERP","description":"Use para recibos ou recebimentos.","parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"limit","in":"query","schema":{"type":"integer"}},{"name":"codigo","in":"query","schema":{"type":"integer"}},{"name":"nome","in":"query","schema":{"type":"string"}},{"name":"cliente_id","in":"query","schema":{"type":"integer"}},{"name":"data_inicio","in":"query","schema":{"type":"string"}},{"name":"data_fim","in":"query","schema":{"type":"string"}},{"name":"valor_inicio","in":"query","schema":{"type":"number"}},{"name":"valor_fim","in":"query","schema":{"type":"number"}},{"name":"liquidado","in":"query","schema":{"type":"string","enum":["ab","at","pg"]}},{"name":"plano_contas_id","in":"query","schema":{"type":"integer"}},{"name":"centro_custo_id","in":"query","schema":{"type":"integer"}},{"name":"conta_bancaria_id","in":"query","schema":{"type":"integer"}},{"name":"forma_pagamento_id","in":"query","schema":{"type":"integer"}},{"name":"ordenacao","in":"query","schema":{"type":"string"}},{"name":"direcao","in":"query","schema":{"type":"string","enum":["asc","desc"]}}],"responses":{"200":{"description":"Recebimentos encontrados"}}},
-      "post":{"operationId":"criarRecebimento","summary":"Cria um recebimento ou recibo de locacao no ERP","description":"Antes de criar, localize cliente, plano de contas, forma de pagamento e conta bancaria corretos. Exija confirmacao.","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["descricao","data_vencimento","plano_contas_id","forma_pagamento_id","conta_bancaria_id","valor","data_competencia"],"properties":{"descricao":{"type":"string"},"data_vencimento":{"type":"string"},"valor":{"type":"number"},"juros":{"type":"number"},"desconto":{"type":"number"},"valor_total":{"type":"number"},"centro_custo_id":{"type":"integer"},"nome_centro_custo":{"type":"string"},"conta_bancaria_id":{"type":"integer"},"nome_conta_bancaria":{"type":"string"},"forma_pagamento_id":{"type":"integer"},"nome_forma_pagamento":{"type":"string"},"entidade":{"type":"string"},"cliente_id":{"type":"integer"},"nome_cliente":{"type":"string"},"liquidado":{"type":"string"},"data_liquidacao":{"type":"string"},"data_competencia":{"type":"string"},"plano_contas_id":{"type":"integer"},"nome_plano_conta":{"type":"string"}}}}}},"responses":{"200":{"description":"Recebimento criado"}}}
+      "get":{"operationId":"buscarRecebimentos","summary":"Busca recebimentos financeiros no ERP","parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"limit","in":"query","schema":{"type":"integer"}},{"name":"codigo","in":"query","schema":{"type":"integer"}},{"name":"nome","in":"query","schema":{"type":"string"}},{"name":"cliente_id","in":"query","schema":{"type":"integer"}},{"name":"data_inicio","in":"query","schema":{"type":"string"}},{"name":"data_fim","in":"query","schema":{"type":"string"}},{"name":"valor_inicio","in":"query","schema":{"type":"number"}},{"name":"valor_fim","in":"query","schema":{"type":"number"}},{"name":"liquidado","in":"query","schema":{"type":"string","enum":["ab","at","pg"]}},{"name":"plano_contas_id","in":"query","schema":{"type":"integer"}},{"name":"centro_custo_id","in":"query","schema":{"type":"integer"}},{"name":"conta_bancaria_id","in":"query","schema":{"type":"integer"}},{"name":"forma_pagamento_id","in":"query","schema":{"type":"integer"}},{"name":"ordenacao","in":"query","schema":{"type":"string"}},{"name":"direcao","in":"query","schema":{"type":"string","enum":["asc","desc"]}}],"responses":{"200":{"description":"Recebimentos encontrados"}}},
+      "post":{"operationId":"criarRecebimento","summary":"Cria um recebimento ou recibo de locacao no ERP","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["descricao","data_vencimento","plano_contas_id","forma_pagamento_id","conta_bancaria_id","valor","data_competencia"],"properties":{"descricao":{"type":"string"},"data_vencimento":{"type":"string"},"valor":{"type":"number"},"juros":{"type":"number"},"desconto":{"type":"number"},"valor_total":{"type":"number"},"centro_custo_id":{"type":"integer"},"nome_centro_custo":{"type":"string"},"conta_bancaria_id":{"type":"integer"},"nome_conta_bancaria":{"type":"string"},"forma_pagamento_id":{"type":"integer"},"nome_forma_pagamento":{"type":"string"},"entidade":{"type":"string"},"cliente_id":{"type":"integer"},"nome_cliente":{"type":"string"},"liquidado":{"type":"string"},"data_liquidacao":{"type":"string"},"data_competencia":{"type":"string"},"plano_contas_id":{"type":"integer"},"nome_plano_conta":{"type":"string"}}}}}},"responses":{"200":{"description":"Recebimento criado"}}}
     },
-    "/erp/recebimentos/{id}": {"get":{"operationId":"consultarRecebimento","summary":"Consulta um recebimento pelo ID interno","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Recebimento encontrado"}}}},
-    "/erp/planos-contas": {"get":{"operationId":"buscarPlanosContas","summary":"Busca planos de contas do ERP","parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"nome","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Planos de contas encontrados"}}}},
-    "/erp/formas-pagamentos": {"get":{"operationId":"buscarFormasPagamentos","summary":"Busca formas de pagamento do ERP","parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"nome","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Formas de pagamento encontradas"}}}},
-    "/erp/contas-bancarias": {"get":{"operationId":"buscarContasBancarias","summary":"Busca contas bancarias do ERP","parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"nome","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Contas bancarias encontradas"}}}},
-    "/erp/regras-faturamento": {"get":{"operationId":"buscarRegraFaturamento","summary":"Busca a regra de faturamento cadastrada para um cliente","parameters":[{"name":"cliente","in":"query","schema":{"type":"string"}},{"name":"cliente_id","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Regra encontrada"},"404":{"description":"Cliente sem regra cadastrada"}}}},
-    "/erp/regras-faturamento/calcular": {"post":{"operationId":"calcularVencimentoFatura","summary":"Calcula emissao e vencimento conforme a regra do cliente","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cliente","vencimento_anterior","data_edicao"],"properties":{"cliente":{"type":"string"},"cliente_id":{"type":"string"},"vencimento_anterior":{"type":"string"},"data_edicao":{"type":"string"}}}}}},"responses":{"200":{"description":"Calculo realizado"},"404":{"description":"Cliente sem regra cadastrada"}}}}
+    "/erp/recebimentos/{id}": {"get":{"operationId":"consultarRecebimento","summary":"Consulta recebimento pelo ID interno","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Recebimento encontrado"}}}},
+    "/erp/planos-contas": {"get":{"operationId":"buscarPlanosContas","summary":"Busca planos de contas do ERP","parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"nome","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Planos encontrados"}}}},
+    "/erp/formas-pagamentos": {"get":{"operationId":"buscarFormasPagamentos","summary":"Busca formas de pagamento do ERP","parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"nome","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Formas encontradas"}}}},
+    "/erp/contas-bancarias": {"get":{"operationId":"buscarContasBancarias","summary":"Busca contas bancarias do ERP","parameters":[{"name":"pagina","in":"query","schema":{"type":"integer","default":1}},{"name":"nome","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Contas encontradas"}}}},
+    "/erp/regras-faturamento": {"get":{"operationId":"buscarRegraFaturamento","summary":"Busca regra de faturamento de cliente","parameters":[{"name":"cliente","in":"query","schema":{"type":"string"}},{"name":"cliente_id","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Regra encontrada"},"404":{"description":"Sem regra"}}}},
+    "/erp/regras-faturamento/calcular": {"post":{"operationId":"calcularVencimentoFatura","summary":"Calcula emissao e vencimento conforme regra do cliente","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cliente","vencimento_anterior","data_edicao"],"properties":{"cliente":{"type":"string"},"cliente_id":{"type":"string"},"vencimento_anterior":{"type":"string"},"data_edicao":{"type":"string"}}}}}},"responses":{"200":{"description":"Calculo realizado"},"404":{"description":"Sem regra"}}}}
   },
   "components": {
     "schemas": {"HealthMarker":{"type":"object","properties":{"status":{"type":"string"}}}},
