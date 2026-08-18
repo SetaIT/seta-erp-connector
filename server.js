@@ -1,4 +1,5 @@
 import express from 'express';
+import fs from 'fs';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -109,6 +110,66 @@ function handleError(err, res) {
   return res.status(500).json({ error: 'connector_error', message: err.message });
 }
 
+function loadBillingRules() {
+  const fileUrl = new URL('./billing-rules.json', import.meta.url);
+  return JSON.parse(fs.readFileSync(fileUrl, 'utf8'));
+}
+
+function normalizeText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function findBillingRule({ cliente, cliente_id }) {
+  const rules = loadBillingRules().clients || [];
+  const normalizedClient = normalizeText(cliente);
+
+  return rules.find(rule => {
+    if (!rule.ativo) return false;
+    if (cliente_id && rule.cliente_erp_id && String(rule.cliente_erp_id) === String(cliente_id)) return true;
+    const names = [rule.cliente_nome, ...(rule.aliases || [])].map(normalizeText);
+    return normalizedClient && names.some(name => name === normalizedClient || normalizedClient.includes(name) || name.includes(normalizedClient));
+  });
+}
+
+function parseIsoDate(value, fieldName) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) {
+    const err = new Error(`${fieldName} deve estar no formato YYYY-MM-DD`);
+    err.status = 400;
+    err.data = { field: fieldName, expected_format: 'YYYY-MM-DD' };
+    throw err;
+  }
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    const err = new Error(`${fieldName} invalida`);
+    err.status = 400;
+    err.data = { field: fieldName };
+    throw err;
+  }
+  return date;
+}
+
+function formatIsoDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDaysUtc(date, days) {
+  const result = new Date(date.getTime());
+  result.setUTCDate(result.getUTCDate() + days);
+  return result;
+}
+
+function nextWednesdayOnOrAfter(date) {
+  const day = date.getUTCDay();
+  const wednesday = 3;
+  const delta = (wednesday - day + 7) % 7;
+  return addDaysUtc(date, delta);
+}
+
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
@@ -187,6 +248,66 @@ app.get('/erp/formas-pagamentos', async (req, res) => {
 app.get('/erp/contas-bancarias', async (req, res) => {
   try { res.json(await betelRequest('/contas_bancarias', { query: req.query })); }
   catch (err) { handleError(err, res); }
+});
+
+app.get('/erp/regras-faturamento', (req, res) => {
+  try {
+    const rule = findBillingRule({ cliente: req.query.cliente, cliente_id: req.query.cliente_id });
+    if (!rule) {
+      return res.status(404).json({
+        error: 'billing_rule_not_found',
+        message: 'Nenhuma regra de faturamento cadastrada para este cliente.'
+      });
+    }
+    return res.json({ status: 'success', data: rule });
+  } catch (err) {
+    return handleError(err, res);
+  }
+});
+
+app.post('/erp/regras-faturamento/calcular', (req, res) => {
+  try {
+    const { cliente, cliente_id, vencimento_anterior, data_edicao } = req.body || {};
+    const rule = findBillingRule({ cliente, cliente_id });
+    if (!rule) {
+      return res.status(404).json({
+        error: 'billing_rule_not_found',
+        message: 'Nenhuma regra de faturamento cadastrada para este cliente.'
+      });
+    }
+
+    const previousDue = parseIsoDate(vencimento_anterior, 'vencimento_anterior');
+    parseIsoDate(data_edicao, 'data_edicao');
+
+    if (rule.vencimento.base !== 'vencimento_fatura_anterior') {
+      return res.status(400).json({ error: 'unsupported_billing_rule', message: 'Base de vencimento ainda nao suportada pelo calculador.' });
+    }
+
+    const minimumDate = addDaysUtc(previousDue, Number(rule.vencimento.dias_minimos || 0));
+    let dueDate = minimumDate;
+
+    if (rule.vencimento.ajuste_dia_semana === 'quarta-feira' && rule.vencimento.regra_ajuste === 'primeira_quarta_igual_ou_posterior') {
+      dueDate = nextWednesdayOnOrAfter(minimumDate);
+    }
+
+    return res.json({
+      status: 'success',
+      data: {
+        cliente: rule.cliente_nome,
+        regra_key: rule.key,
+        data_emissao: data_edicao,
+        vencimento_anterior,
+        dias_minimos: rule.vencimento.dias_minimos,
+        data_minima_sem_ajuste: formatIsoDate(minimumDate),
+        novo_vencimento: formatIsoDate(dueDate),
+        dia_semana_vencimento: 'quarta-feira',
+        regra_aplicada: rule.vencimento.regra_ajuste,
+        exige_confirmacao_antes_de_gerar: Boolean(rule.workflow?.exigir_confirmacao_antes_de_gerar)
+      }
+    });
+  } catch (err) {
+    return handleError(err, res);
+  }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
