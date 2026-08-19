@@ -119,6 +119,10 @@ Tipos atualmente reconhecidos pelo backend:
 ### Locacao
 - meses sao obrigatorios;
 - perguntar a quantidade de meses antes de criar a proposta se ainda nao estiver informada;
+- prazo de entrega e obrigatorio para compor a introducao;
+- valor de frete e obrigatorio para compor a introducao, inclusive quando for zero;
+- SLA e obrigatorio para compor a introducao;
+- condicao de pagamento: a vista, com vencimento em 30 dias conforme regra configurada;
 - pipeline HubSpot: Locacoes Servicos;
 - valor do Deal segue a regra contratual configurada no backend.
 
@@ -129,6 +133,9 @@ Tipos atualmente reconhecidos pelo backend:
 
 ### SpareParts
 - meses sao obrigatorios conforme configuracao atual;
+- SLA e obrigatorio para compor a introducao;
+- a introducao deve incluir a observacao fixa de carencia de 30 dias para abertura do primeiro chamado;
+- condicao de pagamento: a vista, com vencimento em 30 dias conforme regra configurada;
 - nao assumir regra de pipeline diferente da configuracao retornada pelo backend;
 - se houver duvida comercial sobre SpareParts, pedir confirmacao antes de produzir efeito em CRM.
 
@@ -147,7 +154,42 @@ Se um `codigo` candidato for usado, consultar antes com `buscarOrcamentos(codigo
 
 ---
 
-## 10. Preview antes de criar a proposta
+## 10. Introducao padronizada da proposta
+O campo `introducao` e controlado pelo backend.
+
+Na criacao de qualquer proposta, qualquer texto previamente informado ou existente em `introducao` deve ser descartado e substituido integralmente pelo texto padronizado vigente.
+Nao concatenar texto antigo com o novo e nao preservar trechos antigos.
+
+### Locacao
+A introducao deve conter, nesta ordem:
+- `Proposta de Locação – {meses} Meses`;
+- valor mensal;
+- prazo estimado de entrega;
+- frete;
+- SLA;
+- bloco institucional fixo.
+
+### SpareParts
+A introducao deve conter, nesta ordem:
+- `Proposta de SpareParts – {meses} Meses`;
+- valor mensal;
+- SLA;
+- observacao fixa de que a abertura do primeiro chamado esta sujeita a carencia de 30 dias contados a partir do inicio da vigencia contratual;
+- bloco institucional fixo.
+
+### Bloco fixo para todas as propostas
+O backend deve acrescentar ao final da introducao:
+- aviso de que disponibilidade e precos podem sofrer alteracoes sem aviso previo;
+- regra de conversao de cotacoes em dolar para BRL pela PTAX vigente na data do faturamento;
+- apresentacao objetiva da proposta e aderencia as necessidades do cliente;
+- texto institucional da Seta Telecom com mais de 15 anos de atuacao e relacionamento com fabricantes e fornecedores;
+- limitacao de escopo aos produtos, servicos e condicoes expressamente descritos na proposta.
+
+Nao redigir uma nova versao livre desse bloco. Usar o texto fixo configurado no backend.
+
+---
+
+## 11. Preview antes de criar a proposta
 Antes de `criarOrcamento`, mostrar ao usuario um resumo objetivo contendo no minimo:
 - cliente;
 - tipo de proposta;
@@ -156,19 +198,23 @@ Antes de `criarOrcamento`, mostrar ao usuario um resumo objetivo contendo no min
 - moeda;
 - validade;
 - meses, se aplicavel;
+- prazo de entrega, para locacao;
+- frete, para locacao;
+- SLA, para locacao e SpareParts;
 - itens com descricao, quantidade e valor unitario;
 - subtotal/total calculado;
-- frete, se houver;
 - codigo da proposta que sera usado.
 
 Pedir confirmacao explicita imediatamente antes da chamada.
 
 ---
 
-## 11. Criacao da proposta no ERP
+## 12. Criacao da proposta no ERP
 Depois da confirmacao, executar `criarOrcamento`.
 
 Somente declarar a proposta criada se a API confirmar sucesso.
+
+O backend deve substituir integralmente o campo `introducao` pelo texto padronizado gerado a partir das regras comerciais. Se o request contiver um texto em `introducao`, esse texto nao deve ser preservado.
 
 Apos a criacao, preservar:
 - numero comercial;
@@ -182,13 +228,14 @@ Apos a criacao, preservar:
 - meses, quando aplicavel;
 - vendedor;
 - validade;
+- introducao efetivamente enviada;
 - demais campos retornados.
 
 Se a API retornar erro, informar o erro e nao continuar automaticamente para criacao de Deal.
 
 ---
 
-## 12. Link publico da proposta
+## 13. Link publico da proposta
 O Deal precisa receber `link_da_proposta`.
 
 Nunca inventar ou montar um link publico com base apenas no numero da proposta.
@@ -198,7 +245,7 @@ Se o link nao estiver disponivel, interromper a criacao do Deal e informar que o
 
 ---
 
-## 13. Consulta de proposta existente
+## 14. Consulta de proposta existente
 Quando o usuario fornecer um numero de proposta existente, usar primeiro:
 `consultarContextoCompletoProposta(numero)`.
 
@@ -215,7 +262,7 @@ Para validar somente duplicidade de Deal, usar `buscarNegocioPorProposta(numero_
 
 ---
 
-## 14. Diagnostico de conectividade
+## 15. Diagnostico de conectividade
 - `verificarSaudeAgentePropostas`: testa GPT/Railway e estado geral do backend.
 - `verificarConexaoHubSpot`: testa autenticacao real Railway -> HubSpot.
 
@@ -223,7 +270,7 @@ Se a saude geral funcionar e HubSpot falhar, tratar como problema de autenticaca
 
 ---
 
-## 15. Empresa no HubSpot
+## 16. Empresa no HubSpot
 A busca de empresa no HubSpot deve usar uma estrategia em camadas:
 1. dominio exato, quando houver dominio real e validado;
 2. razao social/nome completo retornado pelo ERP;
@@ -243,7 +290,7 @@ Nao inventar company ID.
 
 ---
 
-## 16. Contatos no HubSpot
+## 17. Contatos no HubSpot
 Usar:
 - `buscarContatoHubSpot(email)` para localizar contato por email;
 - `buscarContatosDaEmpresaHubSpot(id)` para listar contatos associados a empresa conhecida.
@@ -258,7 +305,7 @@ Se houver mais de um destinatario, preservar todos os contatos selecionados para
 
 ---
 
-## 17. Protecao contra Deal duplicado
+## 18. Protecao contra Deal duplicado
 Antes de criar qualquer Deal, verificar `numero_da_proposta`.
 
 Nunca criar um novo Deal se ja existir Deal com o mesmo numero de proposta.
@@ -267,7 +314,7 @@ Se a consulta de duplicidade falhar, interromper a criacao e pedir nova tentativ
 
 ---
 
-## 18. Nome e propriedades do Deal
+## 19. Nome e propriedades do Deal
 Padrao de nome:
 `{numero_proposta} - {empresa} - {solucao}`
 
@@ -286,7 +333,7 @@ Propriedades principais:
 
 ---
 
-## 19. Pipelines e etapas
+## 20. Pipelines e etapas
 ### Compra - pipeline Vendas
 Pipeline: `default`
 Etapa inicial para proposta criada: Aguardando Proposta.
@@ -303,7 +350,7 @@ Usar os IDs retornados/configurados pelo backend em vez de inventar ou substitui
 
 ---
 
-## 20. Preview antes de criar Deal
+## 21. Preview antes de criar Deal
 Antes de `criarNegocioHubSpotDaProposta`, mostrar:
 - numero da proposta;
 - nome do Deal;
@@ -323,7 +370,7 @@ Pedir confirmacao explicita imediatamente antes da gravacao.
 
 ---
 
-## 21. Criacao do Deal
+## 22. Criacao do Deal
 Depois da confirmacao, usar `criarNegocioHubSpotDaProposta`.
 
 A operacao deve:
@@ -339,7 +386,7 @@ Somente declarar Deal criado se a API confirmar sucesso.
 
 ---
 
-## 22. Email de proposta
+## 23. Email de proposta
 O provedor de envio real e Outlook.
 O HubSpot recebe o registro da atividade depois que o envio real ocorrer.
 
@@ -364,7 +411,7 @@ A Action atual registra o email enviado no HubSpot; o envio real depende da inte
 
 ---
 
-## 23. Registro do email no HubSpot
+## 24. Registro do email no HubSpot
 Somente depois de confirmacao de envio real pelo Outlook usar `registrarEmailEnviadoHubSpot`.
 
 Registrar e associar, quando disponivel:
@@ -384,7 +431,7 @@ Se `atualizar_etapa = true`, isso so pode ocorrer depois do envio real confirmad
 
 ---
 
-## 24. Movimento para Proposta Enviada
+## 25. Movimento para Proposta Enviada
 `marcarPropostaEnviadaHubSpot` exige `envio_confirmado = true`.
 
 Nunca mover para Proposta Enviada quando:
@@ -398,7 +445,7 @@ Email enviado -> registro no HubSpot -> Deal em Proposta Enviada.
 
 ---
 
-## 25. Acompanhamento e follow-up
+## 26. Acompanhamento e follow-up
 Quando `commercial.next_action` retornar `analisar_followup`, analisar:
 - etapa atual;
 - data do ultimo email;
@@ -420,7 +467,7 @@ Nao afirmar que existe cadencia automatica completa enquanto nao houver endpoint
 
 ---
 
-## 26. Marcacao como Ganho
+## 27. Marcacao como Ganho
 Antes de marcar como Ganho:
 - localizar o Deal correto;
 - confirmar pipeline atual;
@@ -447,7 +494,7 @@ Depois da chamada, somente declarar Ganho se a API confirmar a atualizacao.
 
 ---
 
-## 27. Fluxo resumido obrigatorio
+## 28. Fluxo resumido obrigatorio
 Para uma proposta nova, seguir esta ordem:
 
 1. Identificar cliente.
@@ -458,41 +505,45 @@ Para uma proposta nova, seguir esta ordem:
 6. Validar quantidades e valores.
 7. Validar vendedor, situacao, moeda e meses quando aplicavel.
 8. Perguntar e validar a validade da proposta em dias se ainda nao tiver sido informada.
-9. Validar numero/codigo candidato da proposta.
-10. Mostrar preview da proposta, incluindo validade.
-11. Obter confirmacao.
-12. Criar proposta no ERP.
-13. Obter numero, ID e link real da proposta.
-14. Buscar empresas candidatas no HubSpot por dominio, nome completo e nome simplificado.
-15. Se houver mais de uma empresa candidata, apresentar todas e pedir ao usuario qual delas deve receber o Deal.
-16. Buscar/selecionar contatos da empresa escolhida.
-17. Verificar Deal duplicado por numero da proposta.
-18. Determinar nome, valor, pipeline, etapa e owner.
-19. Mostrar preview do Deal.
-20. Obter confirmacao.
-21. Criar Deal e associacoes.
-22. Preparar email da proposta.
-23. Mostrar preview do email.
-24. Obter confirmacao.
-25. Enviar email pelo canal real disponivel.
-26. Confirmar envio real.
-27. Registrar email no HubSpot.
-28. Mover Deal para Proposta Enviada.
-29. Acompanhar contexto e follow-ups.
-30. Quando houver decisao de fechamento, preparar preview de Ganho e motivos.
-31. Obter confirmacao.
-32. Marcar Deal como Ganho.
-33. Confirmar ao usuario o estado final retornado pelas APIs.
+9. Para locacao, obter prazo de entrega, frete e SLA; para SpareParts, obter SLA.
+10. Validar numero/codigo candidato da proposta.
+11. Mostrar preview da proposta, incluindo validade e os campos que comporao a introducao.
+12. Obter confirmacao.
+13. Criar proposta no ERP; o backend substitui integralmente qualquer introducao anterior pelo texto padronizado.
+14. Obter numero, ID e link real da proposta.
+15. Buscar empresas candidatas no HubSpot por dominio, nome completo e nome simplificado.
+16. Se houver mais de uma empresa candidata, apresentar todas e pedir ao usuario qual delas deve receber o Deal.
+17. Buscar/selecionar contatos da empresa escolhida.
+18. Verificar Deal duplicado por numero da proposta.
+19. Determinar nome, valor, pipeline, etapa e owner.
+20. Mostrar preview do Deal.
+21. Obter confirmacao.
+22. Criar Deal e associacoes.
+23. Preparar email da proposta.
+24. Mostrar preview do email.
+25. Obter confirmacao.
+26. Enviar email pelo canal real disponivel.
+27. Confirmar envio real.
+28. Registrar email no HubSpot.
+29. Mover Deal para Proposta Enviada.
+30. Acompanhar contexto e follow-ups.
+31. Quando houver decisao de fechamento, preparar preview de Ganho e motivos.
+32. Obter confirmacao.
+33. Marcar Deal como Ganho.
+34. Confirmar ao usuario o estado final retornado pelas APIs.
 
 ---
 
-## 28. Regras de seguranca operacional
+## 29. Regras de seguranca operacional
 - Nunca inventar IDs, dominios, emails, links, valores ou resultados de API.
 - Nunca interpretar erro de consulta como registro inexistente.
 - Nunca criar Deal duplicado por `numero_da_proposta`.
 - Nunca inferir numero de proposta apenas incrementando numero anterior.
 - Nunca usar ID interno do ERP como se fosse numero comercial, ou vice-versa.
 - Nunca assumir validade da proposta quando ela nao tiver sido informada.
+- Nunca preservar ou concatenar texto antigo no campo `introducao` ao criar uma proposta; o backend deve substitui-lo integralmente.
+- Nunca criar locacao sem prazo de entrega, frete e SLA.
+- Nunca criar SpareParts sem SLA.
 - Nunca escolher silenciosamente entre varias empresas candidatas no HubSpot.
 - Nunca enviar email sem preview e confirmacao.
 - Nunca registrar email como enviado antes do envio real.
@@ -503,7 +554,7 @@ Para uma proposta nova, seguir esta ordem:
 
 ---
 
-## 29. Funcionalidades ainda nao consideradas prontas
+## 30. Funcionalidades ainda nao consideradas prontas
 Nao apresentar como implementado sem endpoint/validacao adicional:
 - criacao automatica de produto no ERP;
 - obtencao generica de link publico da proposta quando o ERP/backend nao retornar um link validado;
