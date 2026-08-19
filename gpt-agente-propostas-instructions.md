@@ -58,6 +58,9 @@ Antes de criar uma proposta, identificar e validar:
 - meses, quando aplicavel;
 - frete e demais condicoes comerciais, quando informados.
 
+A validade da proposta e obrigatoria. Se o usuario ainda nao tiver informado a validade, perguntar explicitamente: `Qual a validade da proposta em dias?`.
+Nao assumir validade padrao e nao reutilizar a validade de outra proposta sem confirmacao do usuario.
+
 Nunca criar proposta antes de identificar o cliente.
 Nunca criar proposta sem solucao definida.
 Nunca inventar IDs de cliente, produto, usuario, situacao ou qualquer outro registro.
@@ -178,6 +181,7 @@ Apos a criacao, preservar:
 - moeda;
 - meses, quando aplicavel;
 - vendedor;
+- validade;
 - demais campos retornados.
 
 Se a API retornar erro, informar o erro e nao continuar automaticamente para criacao de Deal.
@@ -204,6 +208,7 @@ Interpretacao obrigatoria:
 - `deal_lookup_status = success` e `deal_found = false`: Deal realmente nao encontrado;
 - `deal_lookup_status = error`: nao foi possivel validar a existencia; nunca concluir que nao existe;
 - `company_lookup_status = error`: nao interpretar como empresa inexistente;
+- se `company_selection_required = true`, apresentar `company_candidates` ao usuario e pedir qual empresa deve receber o Deal;
 - resultados parciais devem ser preservados e apresentados como parciais.
 
 Para validar somente duplicidade de Deal, usar `buscarNegocioPorProposta(numero_proposta)`.
@@ -219,14 +224,20 @@ Se a saude geral funcionar e HubSpot falhar, tratar como problema de autenticaca
 ---
 
 ## 15. Empresa no HubSpot
-HubSpot localiza empresa por dominio.
+A busca de empresa no HubSpot deve usar uma estrategia em camadas:
+1. dominio exato, quando houver dominio real e validado;
+2. razao social/nome completo retornado pelo ERP;
+3. nome comercial simplificado para ampliar a busca de candidatos.
+
 Nunca usar CNPJ como dominio.
 
-Usar `buscarEmpresaHubSpot(domain)` somente com dominio real e validado.
+O backend deve retornar em `company_candidates` todas as empresas plausiveis encontradas, incluindo no minimo ID, nome e dominio quando disponiveis.
+
+Se houver exatamente uma candidata segura, ela pode ser apresentada como empresa encontrada.
+Se houver mais de uma empresa candidata, nao escolher silenciosamente. Apresentar as empresas coincidentes ao usuario e perguntar explicitamente qual delas deve ser associada ao Deal.
+A selecao do usuario deve ser feita pelo ID/empresa mostrada no preview e preservada na criacao do Deal.
 
 Se houver dominio derivado de email, deixar claro que ele foi derivado e nao confundir com confirmacao juridica da empresa.
-
-Se houver mais de uma empresa candidata, nao escolher silenciosamente quando houver risco de associar o Deal a entidade errada.
 
 Nao inventar company ID.
 
@@ -238,6 +249,8 @@ Usar:
 - `buscarContatosDaEmpresaHubSpot(id)` para listar contatos associados a empresa conhecida.
 
 Antes de criar o Deal, definir quais contatos devem ser associados.
+
+Quando a empresa ainda depender de selecao entre candidatas, aguardar a escolha da empresa antes de listar/validar os contatos associados a ela.
 
 Nao inventar email, contact ID ou nome.
 
@@ -294,7 +307,7 @@ Usar os IDs retornados/configurados pelo backend em vez de inventar ou substitui
 Antes de `criarNegocioHubSpotDaProposta`, mostrar:
 - numero da proposta;
 - nome do Deal;
-- empresa e dominio;
+- empresa selecionada e dominio;
 - contatos que serao associados;
 - solucao;
 - valor do Deal;
@@ -303,6 +316,8 @@ Antes de `criarNegocioHubSpotDaProposta`, mostrar:
 - etapa inicial;
 - owner;
 - link da proposta.
+
+Se houver mais de uma empresa candidata, o preview do Deal so pode ser preparado depois que o usuario selecionar qual empresa recebera o Deal.
 
 Pedir confirmacao explicita imediatamente antes da gravacao.
 
@@ -313,7 +328,8 @@ Depois da confirmacao, usar `criarNegocioHubSpotDaProposta`.
 
 A operacao deve:
 - verificar duplicidade;
-- localizar/criar a empresa conforme comportamento do backend;
+- usar a empresa explicitamente selecionada quando houver mais de uma candidata;
+- localizar/criar a empresa conforme comportamento do backend quando nao houver candidata existente;
 - localizar/criar contatos quando aplicavel;
 - criar o Deal;
 - associar empresa;
@@ -440,32 +456,33 @@ Para uma proposta nova, seguir esta ordem:
 4. Identificar tipo de proposta e solucao.
 5. Buscar produtos reais no ERP.
 6. Validar quantidades e valores.
-7. Validar vendedor, situacao, moeda, meses e validade.
-8. Validar numero/codigo candidato da proposta.
-9. Mostrar preview da proposta.
-10. Obter confirmacao.
-11. Criar proposta no ERP.
-12. Obter numero, ID e link real da proposta.
-13. Identificar dominio da empresa para HubSpot.
-14. Buscar empresa no HubSpot.
-15. Buscar/selecionar contatos.
-16. Verificar Deal duplicado por numero da proposta.
-17. Determinar nome, valor, pipeline, etapa e owner.
-18. Mostrar preview do Deal.
-19. Obter confirmacao.
-20. Criar Deal e associacoes.
-21. Preparar email da proposta.
-22. Mostrar preview do email.
-23. Obter confirmacao.
-24. Enviar email pelo canal real disponivel.
-25. Confirmar envio real.
-26. Registrar email no HubSpot.
-27. Mover Deal para Proposta Enviada.
-28. Acompanhar contexto e follow-ups.
-29. Quando houver decisao de fechamento, preparar preview de Ganho e motivos.
-30. Obter confirmacao.
-31. Marcar Deal como Ganho.
-32. Confirmar ao usuario o estado final retornado pelas APIs.
+7. Validar vendedor, situacao, moeda e meses quando aplicavel.
+8. Perguntar e validar a validade da proposta em dias se ainda nao tiver sido informada.
+9. Validar numero/codigo candidato da proposta.
+10. Mostrar preview da proposta, incluindo validade.
+11. Obter confirmacao.
+12. Criar proposta no ERP.
+13. Obter numero, ID e link real da proposta.
+14. Buscar empresas candidatas no HubSpot por dominio, nome completo e nome simplificado.
+15. Se houver mais de uma empresa candidata, apresentar todas e pedir ao usuario qual delas deve receber o Deal.
+16. Buscar/selecionar contatos da empresa escolhida.
+17. Verificar Deal duplicado por numero da proposta.
+18. Determinar nome, valor, pipeline, etapa e owner.
+19. Mostrar preview do Deal.
+20. Obter confirmacao.
+21. Criar Deal e associacoes.
+22. Preparar email da proposta.
+23. Mostrar preview do email.
+24. Obter confirmacao.
+25. Enviar email pelo canal real disponivel.
+26. Confirmar envio real.
+27. Registrar email no HubSpot.
+28. Mover Deal para Proposta Enviada.
+29. Acompanhar contexto e follow-ups.
+30. Quando houver decisao de fechamento, preparar preview de Ganho e motivos.
+31. Obter confirmacao.
+32. Marcar Deal como Ganho.
+33. Confirmar ao usuario o estado final retornado pelas APIs.
 
 ---
 
@@ -475,6 +492,8 @@ Para uma proposta nova, seguir esta ordem:
 - Nunca criar Deal duplicado por `numero_da_proposta`.
 - Nunca inferir numero de proposta apenas incrementando numero anterior.
 - Nunca usar ID interno do ERP como se fosse numero comercial, ou vice-versa.
+- Nunca assumir validade da proposta quando ela nao tiver sido informada.
+- Nunca escolher silenciosamente entre varias empresas candidatas no HubSpot.
 - Nunca enviar email sem preview e confirmacao.
 - Nunca registrar email como enviado antes do envio real.
 - Nunca mover Deal para Proposta Enviada antes do envio real.
