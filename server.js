@@ -269,6 +269,49 @@ async function resolvePublicProposalLink(result) {
   };
 }
 
+const EDITABLE_PROPOSAL_FIELDS = [
+  'data',
+  'validade',
+  'situacao_id',
+  'vendedor_id',
+  'previsao_entrega',
+  'prazo_entrega',
+  'valor_frete',
+  'introducao',
+  'observacoes',
+  'observacoes_interna'
+];
+
+function currentProposalRequiredField(current, field) {
+  const value = current?.[field];
+  if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  if (field === 'tipo') return 'produto';
+  throw requestError(`Nao foi possivel preservar o campo obrigatorio ${field} da proposta atual`, { field, available_fields: Object.keys(current || {}) });
+}
+
+function buildProposalEditPayload(current, body) {
+  if (body.confirmacao_edicao !== true) throw requestError('confirmacao_edicao deve ser true antes de editar a proposta', { field: 'confirmacao_edicao' });
+
+  const changes = {};
+  for (const field of EDITABLE_PROPOSAL_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(body, field)) changes[field] = body[field];
+  }
+  if (Object.keys(changes).length === 0) throw requestError('Informe pelo menos um campo para alterar', { allowed_fields: EDITABLE_PROPOSAL_FIELDS });
+
+  if (Object.prototype.hasOwnProperty.call(changes, 'data')) parseIsoDate(changes.data, 'data');
+
+  const payload = {
+    tipo: currentProposalRequiredField(current, 'tipo'),
+    codigo: currentProposalRequiredField(current, 'codigo'),
+    cliente_id: currentProposalRequiredField(current, 'cliente_id'),
+    situacao_id: currentProposalRequiredField(current, 'situacao_id'),
+    data: currentProposalRequiredField(current, 'data'),
+    ...changes
+  };
+
+  return { payload, changes };
+}
+
 function buildProposalIntroduction(body) {
   const { rules, typeKey, typeRule } = getProposalTypeRule(body.tipo_proposta);
   const solution = String(body.solucao || '').trim();
@@ -437,6 +480,33 @@ app.get('/erp/orcamentos/:id', async (req, res) => {
     const result = await betelRequest(`/orcamentos/${encodeURIComponent(req.params.id)}`);
     const publicLink = await resolvePublicProposalLink(result);
     res.json({ ...result, ...publicLink });
+  } catch (err) { handleError(err, res); }
+});
+app.put('/erp/orcamentos/:id', async (req, res) => {
+  try {
+    const id = encodeURIComponent(req.params.id);
+    const currentResult = await betelRequest(`/orcamentos/${id}`);
+    const current = extractProposalData(currentResult);
+    if (!current) throw requestError('Nao foi possivel interpretar a proposta atual antes da edicao', { id: req.params.id });
+
+    const { payload, changes } = buildProposalEditPayload(current, req.body || {});
+    const updateResult = await betelRequest(`/orcamentos/${id}`, { method: 'PUT', body: payload });
+    const refreshedResult = await betelRequest(`/orcamentos/${id}`);
+    const refreshed = extractProposalData(refreshedResult);
+    const publicLink = await resolvePublicProposalLink(refreshedResult);
+
+    res.json({
+      status: 'success',
+      action: 'proposal_updated',
+      id: String(req.params.id),
+      codigo: refreshed?.codigo ?? current?.codigo ?? null,
+      changes_requested: changes,
+      before: Object.fromEntries(Object.keys(changes).map(field => [field, current?.[field] ?? null])),
+      after: Object.fromEntries(Object.keys(changes).map(field => [field, refreshed?.[field] ?? null])),
+      proposal: updateResult,
+      verification: refreshedResult,
+      ...publicLink
+    });
   } catch (err) { handleError(err, res); }
 });
 app.post('/erp/orcamentos', async (req, res) => {
