@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agente de Propostas Seta Telecom",
-    "version": "2.0.8",
+    "version": "2.0.9",
     "description": "Action unica do Agente de Propostas para ERP Betel, HubSpot e registro do fluxo comercial."
   },
   "servers": [
@@ -117,6 +117,17 @@
         "summary": "Consulta proposta pelo ID interno do ERP",
         "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
         "responses": {"200": {"description": "Proposta encontrada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}
+      },
+      "put": {
+        "operationId": "editarOrcamento",
+        "summary": "Edita proposta existente no ERP",
+        "description": "Consulta a proposta atual, preserva os campos obrigatorios e altera somente os campos informados. Exige preview e confirmacao explicita antes da gravacao.",
+        "parameters": [{"name": "id", "in": "path", "required": true, "description": "ID interno da proposta no ERP, nao o numero comercial.", "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrcamentoEditInput"}}}},
+        "responses": {
+          "200": {"description": "Proposta editada e consultada novamente para verificacao", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
+          "400": {"description": "Dados invalidos ou confirmacao ausente"}
+        }
       }
     },
     "/erp/hubspot/configuracao-proposta": {
@@ -280,6 +291,24 @@
           "desconto_porcentagem": {"type": "string"},
           "produtos": {"type": "array", "minItems": 1, "items": {"$ref": "#/components/schemas/ProdutoOrcamento"}}
         }
+      },
+      "OrcamentoEditInput": {
+        "type": "object",
+        "required": ["confirmacao_edicao"],
+        "properties": {
+          "confirmacao_edicao": {"type": "boolean", "const": true, "description": "Deve ser true somente apos preview e confirmacao explicita do usuario."},
+          "data": {"type": "string", "format": "date", "description": "Nova data da proposta no formato YYYY-MM-DD."},
+          "validade": {"type": "string"},
+          "situacao_id": {"type": "string"},
+          "vendedor_id": {"type": "string"},
+          "previsao_entrega": {"type": ["string", "null"]},
+          "prazo_entrega": {"type": ["string", "null"], "description": "Quando usado, respeitar o formato exigido pelo ERP para este campo."},
+          "valor_frete": {"type": "number"},
+          "introducao": {"type": ["string", "null"]},
+          "observacoes": {"type": ["string", "null"]},
+          "observacoes_interna": {"type": ["string", "null"]}
+        },
+        "minProperties": 2
       },
       "ContatoInput": {
         "type": "object",
