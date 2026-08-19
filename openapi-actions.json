@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agente de Propostas Seta Telecom",
-    "version": "2.0.4",
+    "version": "2.0.5",
     "description": "Action unica do Agente de Propostas para ERP Betel, HubSpot e registro do fluxo comercial."
   },
   "servers": [
@@ -103,7 +103,7 @@
       "post": {
         "operationId": "criarOrcamento",
         "summary": "Cria proposta no ERP",
-        "description": "Antes de criar, confirme cliente, tipo, solucao, produtos, quantidades, valores, meses quando aplicavel, moeda, vendedor e validade. Exija confirmacao explicita imediatamente antes da gravacao.",
+        "description": "Antes de criar, confirme cliente, tipo, solucao, produtos, quantidades, valores, meses quando aplicavel, moeda, vendedor e validade. Para locacao, prazo_entrega, valor_frete e SLA sao obrigatorios. Para spareparts, SLA e obrigatorio. O backend sempre substitui qualquer texto recebido em introducao pelo texto padronizado vigente. Exija confirmacao explicita imediatamente antes da gravacao.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrcamentoInput"}}}},
         "responses": {
           "200": {"description": "Proposta criada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
@@ -257,7 +257,7 @@
       },
       "OrcamentoInput": {
         "type": "object",
-        "required": ["tipo", "codigo", "cliente_id", "data", "situacao_id", "tipo_proposta", "solucao", "produtos"],
+        "required": ["tipo", "codigo", "cliente_id", "data", "situacao_id", "validade", "tipo_proposta", "solucao", "produtos"],
         "properties": {
           "tipo": {"type": "string"},
           "codigo": {"type": "integer"},
@@ -265,15 +265,17 @@
           "vendedor_id": {"type": "string"},
           "data": {"type": "string"},
           "situacao_id": {"type": "string"},
-          "validade": {"type": "string"},
+          "validade": {"type": "string", "description": "Validade informada pelo usuario, por exemplo 10 dias."},
           "tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]},
           "solucao": {"type": "string"},
           "meses": {"type": "integer", "minimum": 1},
           "moeda": {"type": "string", "enum": ["BRL", "USD"], "default": "BRL"},
-          "introducao": {"type": "string"},
+          "prazo_entrega": {"type": "string", "description": "Obrigatorio para locacao. Exemplo: 15 dias."},
+          "sla": {"type": "string", "description": "Obrigatorio para locacao e spareparts. Exemplo: 8x5 NBD."},
+          "introducao": {"type": "string", "description": "Ignorado pelo backend na criacao; qualquer texto existente e substituido pela introducao padronizada."},
           "observacoes": {"type": "string"},
           "observacoes_interna": {"type": "string"},
-          "valor_frete": {"type": "number"},
+          "valor_frete": {"type": "number", "description": "Obrigatorio para locacao, inclusive quando o valor for zero."},
           "desconto_valor": {"type": "string"},
           "desconto_porcentagem": {"type": "string"},
           "produtos": {"type": "array", "minItems": 1, "items": {"$ref": "#/components/schemas/ProdutoOrcamento"}}
