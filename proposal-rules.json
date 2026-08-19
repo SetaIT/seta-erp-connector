@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "currency_default": "BRL",
   "deal_name_pattern": "{numero_proposta} - {empresa} - {solucao}",
   "types": {
@@ -66,10 +66,18 @@
     "unified_context_endpoint": "/erp/propostas/{numero}/contexto",
     "require_proposal_type_before_create": true,
     "require_solution_before_create": true,
+    "require_validity_before_create": true,
     "require_explicit_confirmation_before_erp_write": true,
     "require_explicit_confirmation_before_hubspot_write": true,
     "check_deal_duplicate_by_numero_da_proposta": true,
-    "company_lookup_key_hubspot": "domain",
+    "company_lookup_key_hubspot": "domain_then_name_candidates",
+    "company_lookup_strategy": [
+      "domain",
+      "full_name",
+      "simplified_name"
+    ],
+    "return_company_candidates": true,
+    "require_user_company_selection_when_multiple": true,
     "associate_all_selected_contacts_to_deal": true,
     "deal_number_property": "numero_da_proposta",
     "deal_link_property": "link_da_proposta",
