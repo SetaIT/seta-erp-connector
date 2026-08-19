@@ -181,7 +181,12 @@ function proposalTotal(products) {
 
 function formatProposalMoney(value, currency) {
   const number = Number(value || 0);
-  return currency === 'USD' ? `US$ ${number.toFixed(2)}` : `R$ ${number.toFixed(2)}`;
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: currency === 'USD' ? 'USD' : 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(number).replace(/\u00a0/g, ' ');
 }
 
 function getProposalTypeRule(typeKey) {
@@ -190,6 +195,12 @@ function getProposalTypeRule(typeKey) {
   const typeRule = rules.types?.[normalized];
   if (!typeRule) throw requestError('tipo_proposta invalido', { field: 'tipo_proposta', allowed: Object.keys(rules.types || {}) });
   return { rules, typeKey: normalized, typeRule };
+}
+
+function requiredText(value, fieldName) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) throw requestError(`${fieldName} e obrigatorio para este tipo de proposta`, { field: fieldName });
+  return normalized;
 }
 
 function buildProposalIntroduction(body) {
@@ -212,9 +223,29 @@ function buildProposalIntroduction(body) {
     ? (currency === 'USD' ? typeRule.introduction_pattern_usd : typeRule.introduction_pattern_brl)
     : typeRule.introduction_pattern;
 
-  const introduction = String(pattern || typeRule.label)
+  const deliveryTerm = typeRule.requires_delivery_term ? requiredText(body.prazo_entrega, 'prazo_entrega') : String(body.prazo_entrega || '').trim();
+  const sla = typeRule.requires_sla ? requiredText(body.sla, 'sla') : String(body.sla || '').trim();
+
+  let freightFormatted = '';
+  if (typeRule.requires_freight) {
+    if (body.valor_frete === undefined || body.valor_frete === null || String(body.valor_frete).trim() === '') {
+      throw requestError('valor_frete e obrigatorio para este tipo de proposta, inclusive quando for zero', { field: 'valor_frete' });
+    }
+    freightFormatted = formatProposalMoney(parseMoney(body.valor_frete, 'valor_frete'), currency);
+  } else if (body.valor_frete !== undefined && body.valor_frete !== null && String(body.valor_frete).trim() !== '') {
+    freightFormatted = formatProposalMoney(parseMoney(body.valor_frete, 'valor_frete'), currency);
+  }
+
+  const variableBlock = String(pattern || typeRule.label)
     .replaceAll('{meses}', String(months ?? ''))
-    .replaceAll('{valor_formatado}', formattedValue);
+    .replaceAll('{valor_formatado}', formattedValue)
+    .replaceAll('{prazo_entrega}', deliveryTerm)
+    .replaceAll('{frete_formatado}', freightFormatted)
+    .replaceAll('{sla}', sla)
+    .trim();
+
+  const fixedFooter = String(rules.introduction?.fixed_footer || '').trim();
+  const introduction = [variableBlock, fixedFooter].filter(Boolean).join('\n\n');
 
   return {
     introduction,
@@ -225,6 +256,10 @@ function buildProposalIntroduction(body) {
       meses: months,
       moeda: currency,
       valor_calculado: Number(total.toFixed(2)),
+      prazo_entrega: deliveryTerm || null,
+      valor_frete: freightFormatted || null,
+      sla: sla || null,
+      introducao_substituida: true,
       hubspot_pipeline: typeRule.hubspot_pipeline,
       hubspot_stage_aguardando_proposta: typeRule.hubspot_stage_aguardando_proposta,
       hubspot_stage_proposta_enviada: typeRule.hubspot_stage_proposta_enviada
@@ -335,10 +370,19 @@ app.get('/erp/orcamentos/:id', async (req, res) => { try { res.json(await betelR
 app.post('/erp/orcamentos', async (req, res) => {
   try {
     const { introduction, metadata } = buildProposalIntroduction(req.body || {});
-    const { tipo_proposta, solucao, meses, moeda, ...betelBody } = req.body || {};
+    const {
+      tipo_proposta,
+      solucao,
+      meses,
+      moeda,
+      prazo_entrega,
+      sla,
+      introducao: _introducaoExistente,
+      ...betelBody
+    } = req.body || {};
     betelBody.introducao = introduction;
     const result = await betelRequest('/orcamentos', { method: 'POST', body: betelBody });
-    res.json({ status: 'success', proposal: result, commercial: metadata, introducao_enviada: introduction });
+    res.json({ status: 'success', proposal: result, commercial: metadata, introducao_enviada: introduction, introducao_substituida: true });
   } catch (err) { handleError(err, res); }
 });
 
