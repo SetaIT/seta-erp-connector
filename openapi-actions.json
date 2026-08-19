@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agente de Propostas Seta Telecom",
-    "version": "2.0.7",
+    "version": "2.0.8",
     "description": "Action unica do Agente de Propostas para ERP Betel, HubSpot e registro do fluxo comercial."
   },
   "servers": [
@@ -103,7 +103,7 @@
       "post": {
         "operationId": "criarOrcamento",
         "summary": "Cria proposta no ERP",
-        "description": "Em locacao informe prazo_entrega_dias, frete e SLA. O backend calcula a data de entrega e gera a introducao. Exige confirmacao previa.",
+        "description": "Em locacao informe prazo_entrega_dias, frete e SLA. O backend calcula prazo_entrega em DD-MM-YYYY e gera a introducao. Exige confirmacao previa.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrcamentoInput"}}}},
         "responses": {
           "200": {"description": "Proposta criada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
@@ -270,7 +270,7 @@
           "solucao": {"type": "string"},
           "meses": {"type": "integer", "minimum": 1},
           "moeda": {"type": "string", "enum": ["BRL", "USD"], "default": "BRL"},
-          "prazo_entrega_dias": {"type": "integer", "minimum": 1, "description": "Obrigatorio para locacao. Numero de dias corridos desde a data da proposta. O backend calcula prazo_entrega como data e usa este numero na introducao."},
+          "prazo_entrega_dias": {"type": "integer", "minimum": 1, "description": "Obrigatorio para locacao. Dias corridos desde a data da proposta. O backend envia prazo_entrega ao ERP em DD-MM-YYYY e usa o numero de dias na introducao."},
           "sla": {"type": "string", "description": "Obrigatorio para locacao e spareparts. Exemplo: 8x5 NBD."},
           "introducao": {"type": "string", "description": "Ignorado pelo backend na criacao; qualquer texto existente e substituido pela introducao padronizada."},
           "observacoes": {"type": "string"},
