@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "currency_default": "BRL",
   "deal_name_pattern": "{numero_proposta} - {empresa} - {solucao}",
   "introduction": {
@@ -14,6 +14,7 @@
       "delivery_input": "prazo_entrega_dias",
       "delivery_date_field": "prazo_entrega",
       "delivery_date_rule": "proposal_date_plus_calendar_days",
+      "delivery_date_format": "DD-MM-YYYY",
       "requires_freight": true,
       "requires_sla": true,
       "deal_amount_rule": "monthly_value_times_months",
