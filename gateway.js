@@ -135,6 +135,28 @@ function normalizeText(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 }
 
+function companySearchTerms(value) {
+  const normalized = normalizeText(value).replace(/[^a-z0-9\s.-]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!normalized) return [];
+  const ignored = new Set(['brasil', 'brazil', 'industria', 'industrial', 'comercio', 'comercial', 'servicos', 'servico', 'tecnologia', 'ltda', 'sa', 's/a', 'e', 'de', 'da', 'do', 'das', 'dos']);
+  const meaningful = normalized.split(/\s+/).filter(token => token.length >= 2 && !ignored.has(token));
+  const terms = [normalized];
+  if (meaningful.length) terms.push(meaningful.join(' '));
+  if (meaningful[0]) terms.push(meaningful[0]);
+  return [...new Set(terms.map(term => term.trim()).filter(term => term.length >= 2))];
+}
+
+function mergeCompanyCandidates(...lists) {
+  const map = new Map();
+  for (const list of lists) {
+    for (const item of list || []) {
+      const key = String(item?.id || `${normalizeText(item?.properties?.name)}|${normalizeText(item?.properties?.domain)}`);
+      if (!map.has(key)) map.set(key, item);
+    }
+  }
+  return [...map.values()];
+}
+
 function collectionFromPayload(payload) {
   if (Array.isArray(payload)) return payload;
   if (!payload || typeof payload !== 'object') return [];
@@ -275,8 +297,11 @@ function stageLabel(stage, pipeline, rules) {
   return stage || null;
 }
 
-function recommendedAction(deal, emails, rules, dealLookupStatus = 'success') {
+function recommendedAction(deal, emails, rules, dealLookupStatus = 'success', companyLookupStatus = 'success', companyCandidates = []) {
   if (dealLookupStatus !== 'success') return { code: 'verificar_hubspot', label: 'Repetir a consulta do Deal no HubSpot antes de decidir a próxima ação' };
+  if (!deal && (companyLookupStatus === 'ambiguous' || companyCandidates.length > 1)) {
+    return { code: 'selecionar_empresa', label: 'Selecionar qual empresa do HubSpot deve receber o Deal', company_candidates_count: companyCandidates.length };
+  }
   if (!deal) return { code: 'criar_deal', label: 'Criar Deal no HubSpot a partir da proposta do ERP' };
   const pipeline = String(deal?.properties?.pipeline || '');
   const stage = String(deal?.properties?.dealstage || '');
@@ -381,24 +406,37 @@ app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
     let companyCandidates = [];
     let companyLookupStatus = 'skipped';
     let companyLookupError = null;
+    let companySearchQueries = [];
     if (identity.domain || identity.company_name) {
       companyLookupStatus = 'success';
       try {
         if (identity.domain) {
           const companySearch = await hubspotSearchExact('companies', 'domain', identity.domain, ['name', 'domain', 'website', 'hubspot_owner_id']);
-          companyCandidates = companySearch?.results || [];
-          company = companyCandidates[0] || null;
+          companyCandidates = mergeCompanyCandidates(companyCandidates, companySearch?.results || []);
+          companySearchQueries.push({ type: 'domain', value: identity.domain, count: (companySearch?.results || []).length });
         }
-        if (!company && identity.company_name) {
-          const companySearch = await hubspotSearchQuery('companies', identity.company_name, ['name', 'domain', 'website', 'hubspot_owner_id']);
-          companyCandidates = companySearch?.results || [];
-          company = companyCandidates.find(item => normalizeText(item?.properties?.name) === normalizeText(identity.company_name)) || companyCandidates[0] || null;
+
+        if (identity.company_name) {
+          for (const term of companySearchTerms(identity.company_name)) {
+            const companySearch = await hubspotSearchQuery('companies', term, ['name', 'domain', 'website', 'hubspot_owner_id']);
+            companyCandidates = mergeCompanyCandidates(companyCandidates, companySearch?.results || []);
+            companySearchQueries.push({ type: term === normalizeText(identity.company_name) ? 'full_name' : 'name_candidate', value: term, count: (companySearch?.results || []).length });
+          }
+        }
+
+        if (companyCandidates.length === 1) {
+          company = companyCandidates[0];
+        } else if (companyCandidates.length > 1) {
+          company = null;
+          companyLookupStatus = 'ambiguous';
         }
       } catch (err) {
         companyLookupStatus = 'error';
         companyLookupError = diagnosticError(err);
       }
     }
+
+    const companySelectionRequired = companyLookupStatus === 'ambiguous' || (!company && companyCandidates.length > 1);
 
     let contacts = [];
     let contactsLookupStatus = company?.id ? 'success' : 'skipped';
@@ -444,9 +482,11 @@ app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
         deal_stage_label: deal ? stageLabel(currentStage, currentPipeline, rules) : null,
         company_lookup_status: companyLookupStatus,
         company_lookup_error: companyLookupError,
-        company_found: companyLookupStatus === 'success' ? Boolean(company) : null,
+        company_found: companyLookupStatus === 'success' ? Boolean(company) : (companyLookupStatus === 'ambiguous' ? false : null),
+        company_selection_required: companySelectionRequired,
         company,
         company_candidates: companyCandidates,
+        company_search_queries: companySearchQueries,
         contacts_lookup_status: contactsLookupStatus,
         contacts_lookup_error: contactsLookupError,
         contacts,
@@ -455,7 +495,7 @@ app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
         email_history: emails,
         last_email: emails[0] || null
       },
-      commercial: { next_action: recommendedAction(deal, emails, rules, dealLookupStatus), workflow: rules.workflow || null }
+      commercial: { next_action: recommendedAction(deal, emails, rules, dealLookupStatus, companyLookupStatus, companyCandidates), workflow: rules.workflow || null }
     });
   } catch (err) {
     handleError(err, res);
