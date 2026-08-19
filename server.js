@@ -217,6 +217,12 @@ function parseIsoDate(value, fieldName) {
   return date;
 }
 function formatIsoDate(date) { return date.toISOString().slice(0, 10); }
+function formatDmyDate(date) {
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const year = date.getUTCFullYear();
+  return `${day}-${month}-${year}`;
+}
 function addDaysUtc(date, days) { const result = new Date(date.getTime()); result.setUTCDate(result.getUTCDate() + days); return result; }
 function nextWednesdayOnOrAfter(date) { return addDaysUtc(date, (3 - date.getUTCDay() + 7) % 7); }
 
@@ -246,7 +252,7 @@ function buildProposalIntroduction(body) {
   if (typeRule.requires_delivery_term) {
     deliveryDays = parsePositiveInteger(body.prazo_entrega_dias, 'prazo_entrega_dias');
     const proposalDate = parseIsoDate(body.data, 'data');
-    deliveryDate = formatIsoDate(addDaysUtc(proposalDate, deliveryDays));
+    deliveryDate = formatDmyDate(addDaysUtc(proposalDate, deliveryDays));
     deliveryTerm = `${deliveryDays} dias`;
   }
 
