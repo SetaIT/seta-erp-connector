@@ -11,6 +11,7 @@ const BETEL_SECRET_ACCESS_TOKEN = process.env.BETEL_SECRET_ACCESS_TOKEN;
 const CONNECTOR_API_KEY = process.env.CONNECTOR_API_KEY;
 const HUBSPOT_BASE_URL = process.env.HUBSPOT_BASE_URL || 'https://api.hubapi.com';
 const HUBSPOT_ACCESS_TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
+const PUBLIC_PROPOSAL_BASE_URL = process.env.PUBLIC_PROPOSAL_BASE_URL || 'https://app.setatelecom.com.br/prop';
 
 function getMissingEnv() {
   const missing = [];
@@ -226,6 +227,48 @@ function formatDmyDate(date) {
 function addDaysUtc(date, days) { const result = new Date(date.getTime()); result.setUTCDate(result.getUTCDate() + days); return result; }
 function nextWednesdayOnOrAfter(date) { return addDaysUtc(date, (3 - date.getUTCDay() + 7) % 7); }
 
+function extractProposalData(result) {
+  if (result && typeof result === 'object' && result.data && typeof result.data === 'object') return result.data;
+  return result && typeof result === 'object' ? result : null;
+}
+
+function buildPublicProposalLink(hash) {
+  const normalizedHash = String(hash || '').trim();
+  if (!normalizedHash) return null;
+  return `${PUBLIC_PROPOSAL_BASE_URL.replace(/\/$/, '')}/${encodeURIComponent(normalizedHash)}`;
+}
+
+async function resolvePublicProposalLink(result) {
+  let source = extractProposalData(result);
+  let internalId = source?.id ? String(source.id) : null;
+  let hash = source?.hash ? String(source.hash).trim() : '';
+  let lookupPerformed = false;
+  let lookupError = null;
+
+  if (!hash && internalId) {
+    lookupPerformed = true;
+    try {
+      const refreshed = await betelRequest(`/orcamentos/${encodeURIComponent(internalId)}`);
+      const refreshedData = extractProposalData(refreshed);
+      source = refreshedData || source;
+      hash = refreshedData?.hash ? String(refreshedData.hash).trim() : '';
+      internalId = refreshedData?.id ? String(refreshedData.id) : internalId;
+    } catch (err) {
+      lookupError = err.message;
+    }
+  }
+
+  const link = buildPublicProposalLink(hash);
+  return {
+    link_proposta: link,
+    link_proposta_status: link ? 'validated_from_erp_hash' : 'unavailable',
+    link_proposta_hash: hash || null,
+    link_proposta_orcamento_id: internalId,
+    link_proposta_lookup_performed: lookupPerformed,
+    link_proposta_lookup_error: lookupError
+  };
+}
+
 function buildProposalIntroduction(body) {
   const { rules, typeKey, typeRule } = getProposalTypeRule(body.tipo_proposta);
   const solution = String(body.solucao || '').trim();
@@ -389,7 +432,13 @@ app.get('/erp/produtos', async (req, res) => { try { res.json(await betelRequest
 app.get('/erp/usuarios', async (req, res) => { try { res.json(await betelRequest('/usuarios', { query: req.query })); } catch (err) { handleError(err, res); } });
 app.get('/erp/situacoes-orcamentos', async (req, res) => { try { res.json(await betelRequest('/situacoes_orcamentos', { query: req.query })); } catch (err) { handleError(err, res); } });
 app.get('/erp/orcamentos', async (req, res) => { try { res.json(await betelRequest('/orcamentos', { query: req.query })); } catch (err) { handleError(err, res); } });
-app.get('/erp/orcamentos/:id', async (req, res) => { try { res.json(await betelRequest(`/orcamentos/${encodeURIComponent(req.params.id)}`)); } catch (err) { handleError(err, res); } });
+app.get('/erp/orcamentos/:id', async (req, res) => {
+  try {
+    const result = await betelRequest(`/orcamentos/${encodeURIComponent(req.params.id)}`);
+    const publicLink = await resolvePublicProposalLink(result);
+    res.json({ ...result, ...publicLink });
+  } catch (err) { handleError(err, res); }
+});
 app.post('/erp/orcamentos', async (req, res) => {
   try {
     const { introduction, metadata } = buildProposalIntroduction(req.body || {});
@@ -406,13 +455,15 @@ app.post('/erp/orcamentos', async (req, res) => {
     betelBody.introducao = introduction;
     if (metadata.prazo_entrega_data) betelBody.prazo_entrega = metadata.prazo_entrega_data;
     const result = await betelRequest('/orcamentos', { method: 'POST', body: betelBody });
+    const publicLink = await resolvePublicProposalLink(result);
     res.json({
       status: 'success',
       proposal: result,
       commercial: metadata,
       introducao_enviada: introduction,
       introducao_substituida: true,
-      prazo_entrega_enviado: metadata.prazo_entrega_data
+      prazo_entrega_enviado: metadata.prazo_entrega_data,
+      ...publicLink
     });
   } catch (err) { handleError(err, res); }
 });
