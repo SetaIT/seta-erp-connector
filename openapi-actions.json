@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agente de Propostas Seta Telecom",
-    "version": "2.0.10",
+    "version": "2.0.11",
     "description": "Action unica do Agente de Propostas para ERP Betel, HubSpot e registro do fluxo comercial."
   },
   "servers": [
@@ -127,6 +127,17 @@
         "responses": {
           "200": {"description": "Proposta editada e consultada novamente para verificacao", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
           "400": {"description": "Dados invalidos ou confirmacao ausente"}
+        }
+      },
+      "delete": {
+        "operationId": "excluirOrcamento",
+        "summary": "Exclui definitivamente uma proposta do ERP",
+        "description": "Use somente depois de consultar a proposta, mostrar preview exato e obter confirmacao explicita de exclusao. O backend valida o codigo comercial antes de excluir e consulta novamente para verificar a remocao.",
+        "parameters": [{"name": "id", "in": "path", "required": true, "description": "ID interno da proposta no ERP, nao o numero comercial.", "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrcamentoDeleteInput"}}}},
+        "responses": {
+          "200": {"description": "Resultado da exclusao e verificacao posterior", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
+          "400": {"description": "Confirmacao ausente ou codigo de confirmacao divergente"}
         }
       }
     },
@@ -309,6 +320,15 @@
           "observacoes_interna": {"type": ["string", "null"]}
         },
         "minProperties": 2
+      },
+      "OrcamentoDeleteInput": {
+        "type": "object",
+        "required": ["confirmacao_exclusao", "codigo_confirmacao"],
+        "properties": {
+          "confirmacao_exclusao": {"type": "boolean", "const": true, "description": "Deve ser true somente apos preview e confirmacao explicita da exclusao definitiva."},
+          "codigo_confirmacao": {"type": "string", "description": "Numero comercial exato da proposta que sera excluida. Deve coincidir com o codigo lido do ERP."}
+        },
+        "additionalProperties": false
       },
       "ContatoInput": {
         "type": "object",
