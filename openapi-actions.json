@@ -2,11 +2,11 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agente de Propostas Seta Telecom",
-    "version": "2.0.9",
+    "version": "2.0.10",
     "description": "Action unica do Agente de Propostas para ERP Betel, HubSpot e registro do fluxo comercial."
   },
   "servers": [
-    {"url": "https://seta-erp-connector-production-1255.up.railway.app"}
+    {"url": "https://seta-erp-connector-production.up.railway.app"}
   ],
   "security": [
     {"bearerAuth": []}
