@@ -1,13 +1,13 @@
 {
   "name": "seta-erp-connector",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "start": "node --import ./edit-diagnostics-preload.js gateway.js"
+    "start": "node --import ./read-diagnostics-preload.js --import ./edit-diagnostics-preload.js gateway.js"
   },
   "dependencies": {
     "express": "^4.21.2"
