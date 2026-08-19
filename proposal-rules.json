@@ -1,13 +1,20 @@
 {
-  "version": 6,
+  "version": 7,
   "currency_default": "BRL",
   "deal_name_pattern": "{numero_proposta} - {empresa} - {solucao}",
+  "introduction": {
+    "replace_existing_text": true,
+    "fixed_footer": "A disponibilidade dos produtos e os preços apresentados estão sujeitos a alterações sem aviso prévio.\n\nPara cotações expressas em dólar, os valores serão convertidos para BRL (Reais) utilizando a PTAX vigente na data do faturamento.\n\nA Seta Telecom apresenta esta proposta para o fornecimento da solução descrita abaixo, considerando os requisitos e necessidades informados pelo cliente.\n\nCom mais de 15 anos de atuação no mercado nacional e relacionamento com diversos fabricantes e fornecedores, buscamos oferecer soluções tecnologicamente atualizadas, competitivas e adequadas às necessidades de cada projeto.\n\nEsta proposta contempla exclusivamente os produtos, serviços e condições expressamente descritos neste documento."
+  },
   "types": {
     "locacao": {
       "label": "Proposta de Locação",
       "requires_months": true,
+      "requires_delivery_term": true,
+      "requires_freight": true,
+      "requires_sla": true,
       "deal_amount_rule": "monthly_value_times_months",
-      "introduction_pattern": "Proposta de Locação - {meses} meses\nValor mensal: {valor_formatado}/mês",
+      "introduction_pattern": "Proposta de Locação – {meses} Meses\n\nValor mensal: {valor_formatado}\nPrazo estimado de entrega: {prazo_entrega}\nFrete: {frete_formatado}\nSLA: {sla}",
       "payment_terms": {
         "condicao_pagamento": "a_vista",
         "numero_parcelas": 1,
@@ -24,8 +31,8 @@
       "requires_months": false,
       "deal_amount_rule": "proposal_total",
       "currency_required_when_usd": true,
-      "introduction_pattern_brl": "Proposta de Compra\nValor total: {valor_formatado}",
-      "introduction_pattern_usd": "Proposta de Compra - USD\nValor total: {valor_formatado}",
+      "introduction_pattern_brl": "Proposta de Compra\n\nValor total: {valor_formatado}",
+      "introduction_pattern_usd": "Proposta de Compra – USD\n\nValor total: {valor_formatado}",
       "hubspot_pipeline": "default",
       "hubspot_stage_aguardando_proposta": "20205433",
       "hubspot_stage_proposta_enviada": "qualifiedtobuy",
@@ -34,8 +41,9 @@
     "spareparts": {
       "label": "Proposta de SpareParts",
       "requires_months": true,
+      "requires_sla": true,
       "deal_amount_rule": "explicit_value_until_confirmed",
-      "introduction_pattern": "Proposta de SpareParts - {meses} meses\nValor mensal: {valor_formatado}/mês",
+      "introduction_pattern": "Proposta de SpareParts – {meses} Meses\n\nValor mensal: {valor_formatado}\nSLA: {sla}\n\nObservação: a abertura do primeiro chamado estará sujeita a uma carência de 30 dias contados a partir do início da vigência contratual.",
       "payment_terms": {
         "condicao_pagamento": "a_vista",
         "numero_parcelas": 1,
@@ -81,6 +89,7 @@
     "require_validity_before_create": true,
     "apply_type_payment_terms_before_create": true,
     "payment_due_date_base": "proposal_date",
+    "replace_existing_introduction_before_create": true,
     "require_explicit_confirmation_before_erp_write": true,
     "require_explicit_confirmation_before_hubspot_write": true,
     "check_deal_duplicate_by_numero_da_proposta": true,
