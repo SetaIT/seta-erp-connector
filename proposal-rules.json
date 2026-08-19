@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "currency_default": "BRL",
   "deal_name_pattern": "{numero_proposta} - {empresa} - {solucao}",
   "types": {
@@ -8,6 +8,12 @@
       "requires_months": true,
       "deal_amount_rule": "monthly_value_times_months",
       "introduction_pattern": "Proposta de Locação - {meses} meses\nValor mensal: {valor_formatado}/mês",
+      "payment_terms": {
+        "condicao_pagamento": "a_vista",
+        "numero_parcelas": 1,
+        "vencimento_dias_apos_data_proposta": 30,
+        "exibir_pagamento": true
+      },
       "hubspot_pipeline": "9501279",
       "hubspot_stage_aguardando_proposta": "9501282",
       "hubspot_stage_proposta_enviada": "9501283",
@@ -30,6 +36,12 @@
       "requires_months": true,
       "deal_amount_rule": "explicit_value_until_confirmed",
       "introduction_pattern": "Proposta de SpareParts - {meses} meses\nValor mensal: {valor_formatado}/mês",
+      "payment_terms": {
+        "condicao_pagamento": "a_vista",
+        "numero_parcelas": 1,
+        "vencimento_dias_apos_data_proposta": 30,
+        "exibir_pagamento": true
+      },
       "hubspot_pipeline": "9501279",
       "hubspot_stage_aguardando_proposta": "9501282",
       "hubspot_stage_proposta_enviada": "9501283",
@@ -67,6 +79,8 @@
     "require_proposal_type_before_create": true,
     "require_solution_before_create": true,
     "require_validity_before_create": true,
+    "apply_type_payment_terms_before_create": true,
+    "payment_due_date_base": "proposal_date",
     "require_explicit_confirmation_before_erp_write": true,
     "require_explicit_confirmation_before_hubspot_write": true,
     "check_deal_duplicate_by_numero_da_proposta": true,
