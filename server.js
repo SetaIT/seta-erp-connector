@@ -203,6 +203,23 @@ function requiredText(value, fieldName) {
   return normalized;
 }
 
+function parsePositiveInteger(value, fieldName) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) throw requestError(`${fieldName} deve ser um inteiro maior que zero`, { field: fieldName, value });
+  return parsed;
+}
+
+function parseIsoDate(value, fieldName) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) throw requestError(`${fieldName} deve estar no formato YYYY-MM-DD`, { field: fieldName, expected_format: 'YYYY-MM-DD' });
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) throw requestError(`${fieldName} invalida`, { field: fieldName });
+  return date;
+}
+function formatIsoDate(date) { return date.toISOString().slice(0, 10); }
+function addDaysUtc(date, days) { const result = new Date(date.getTime()); result.setUTCDate(result.getUTCDate() + days); return result; }
+function nextWednesdayOnOrAfter(date) { return addDaysUtc(date, (3 - date.getUTCDay() + 7) % 7); }
+
 function buildProposalIntroduction(body) {
   const { rules, typeKey, typeRule } = getProposalTypeRule(body.tipo_proposta);
   const solution = String(body.solucao || '').trim();
@@ -223,7 +240,16 @@ function buildProposalIntroduction(body) {
     ? (currency === 'USD' ? typeRule.introduction_pattern_usd : typeRule.introduction_pattern_brl)
     : typeRule.introduction_pattern;
 
-  const deliveryTerm = typeRule.requires_delivery_term ? requiredText(body.prazo_entrega, 'prazo_entrega') : String(body.prazo_entrega || '').trim();
+  let deliveryDays = null;
+  let deliveryTerm = '';
+  let deliveryDate = null;
+  if (typeRule.requires_delivery_term) {
+    deliveryDays = parsePositiveInteger(body.prazo_entrega_dias, 'prazo_entrega_dias');
+    const proposalDate = parseIsoDate(body.data, 'data');
+    deliveryDate = formatIsoDate(addDaysUtc(proposalDate, deliveryDays));
+    deliveryTerm = `${deliveryDays} dias`;
+  }
+
   const sla = typeRule.requires_sla ? requiredText(body.sla, 'sla') : String(body.sla || '').trim();
 
   let freightFormatted = '';
@@ -256,7 +282,9 @@ function buildProposalIntroduction(body) {
       meses: months,
       moeda: currency,
       valor_calculado: Number(total.toFixed(2)),
-      prazo_entrega: deliveryTerm || null,
+      prazo_entrega_dias: deliveryDays,
+      prazo_entrega_texto: deliveryTerm || null,
+      prazo_entrega_data: deliveryDate,
       valor_frete: freightFormatted || null,
       sla: sla || null,
       introducao_substituida: true,
@@ -346,17 +374,6 @@ function calculateDealAmount(body, typeKey) {
   return { amount: Number(amount.toFixed(2)), monthly: null, months: body.meses ? Number(body.meses) : null, rule: 'explicit_value' };
 }
 
-function parseIsoDate(value, fieldName) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) throw requestError(`${fieldName} deve estar no formato YYYY-MM-DD`, { field: fieldName, expected_format: 'YYYY-MM-DD' });
-  const [year, month, day] = value.split('-').map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) throw requestError(`${fieldName} invalida`, { field: fieldName });
-  return date;
-}
-function formatIsoDate(date) { return date.toISOString().slice(0, 10); }
-function addDaysUtc(date, days) { const result = new Date(date.getTime()); result.setUTCDate(result.getUTCDate() + days); return result; }
-function nextWednesdayOnOrAfter(date) { return addDaysUtc(date, (3 - date.getUTCDay() + 7) % 7); }
-
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'seta-erp-connector', configured: getMissingEnv().length === 0, hubspot_configured: Boolean(HUBSPOT_ACCESS_TOKEN) }));
 app.use('/erp', auth);
 
@@ -375,14 +392,22 @@ app.post('/erp/orcamentos', async (req, res) => {
       solucao,
       meses,
       moeda,
-      prazo_entrega,
+      prazo_entrega_dias,
       sla,
       introducao: _introducaoExistente,
       ...betelBody
     } = req.body || {};
     betelBody.introducao = introduction;
+    if (metadata.prazo_entrega_data) betelBody.prazo_entrega = metadata.prazo_entrega_data;
     const result = await betelRequest('/orcamentos', { method: 'POST', body: betelBody });
-    res.json({ status: 'success', proposal: result, commercial: metadata, introducao_enviada: introduction, introducao_substituida: true });
+    res.json({
+      status: 'success',
+      proposal: result,
+      commercial: metadata,
+      introducao_enviada: introduction,
+      introducao_substituida: true,
+      prazo_entrega_enviado: metadata.prazo_entrega_data
+    });
   } catch (err) { handleError(err, res); }
 });
 
