@@ -2,6 +2,7 @@ import express from 'express';
 
 const originalUse = express.application.use;
 const originalPut = express.application.put;
+const originalDelete = express.application.delete;
 let diagnosticsRouteInstalled = false;
 
 const BETEL_BASE_URL = process.env.BETEL_BASE_URL || 'https://api.beteltecnologia.com/api';
@@ -199,7 +200,6 @@ function buildPayload(current, body) {
     ...changes
   };
 
-  // Required values must always win over any stale duplicated response property.
   payload.codigo = codigo;
   payload.cliente_id = currentRequired(current, 'cliente_id');
   payload.situacao_id = Object.prototype.hasOwnProperty.call(changes, 'situacao_id') ? changes.situacao_id : currentRequired(current, 'situacao_id');
@@ -215,9 +215,27 @@ function valuesForFields(source, fields) {
   return output;
 }
 
+function normalizeForComparison(value, key = '') {
+  if (Array.isArray(value)) return value.map(item => normalizeForComparison(item, key));
+  if (value && typeof value === 'object') {
+    const output = {};
+    for (const [childKey, childValue] of Object.entries(value)) {
+      output[childKey] = normalizeForComparison(childValue, childKey);
+    }
+    return output;
+  }
+  if (key === 'desconto_valor' || key === 'desconto_porcentagem') {
+    const raw = value === null || value === undefined ? '' : String(value).trim();
+    if (raw === '') return '0';
+    const numeric = Number(raw.replace(',', '.'));
+    if (Number.isFinite(numeric) && numeric === 0) return '0';
+  }
+  return value;
+}
+
 function stableJson(value) {
   if (value === undefined) return '__undefined__';
-  try { return JSON.stringify(value); } catch { return String(value); }
+  try { return JSON.stringify(normalizeForComparison(value)); } catch { return String(value); }
 }
 
 function stabilityCheck(before, after, changedFields) {
@@ -266,43 +284,22 @@ async function editDiagnosticsHandler(req, res) {
   try {
     const currentResponse = await betel(`/orcamentos/${encodeURIComponent(id)}`);
     if (!currentResponse.ok) {
-      return res.status(200).json({
-        status: 'error',
-        stage: 'load_current_proposal',
-        write_attempted: false,
-        write_succeeded: false,
-        betel_http_status: currentResponse.status,
-        betel_details: compactDetails(currentResponse.data)
-      });
+      return res.status(200).json({ status: 'error', stage: 'load_current_proposal', write_attempted: false, write_succeeded: false, betel_http_status: currentResponse.status, betel_details: compactDetails(currentResponse.data) });
     }
     current = proposalData(currentResponse.data);
     if (!current) {
       return res.status(200).json({ status: 'error', stage: 'load_current_proposal', write_attempted: false, write_succeeded: false, message: 'Resposta do Betel sem proposta interpretavel.' });
     }
-
     ({ payload, changes, preservedFields } = buildPayload(current, req.body || {}));
   } catch (err) {
-    return res.status(200).json({
-      status: 'error',
-      stage: err.stage || 'prepare_payload',
-      write_attempted: false,
-      write_succeeded: false,
-      field: err.field || null,
-      message: err.message
-    });
+    return res.status(200).json({ status: 'error', stage: err.stage || 'prepare_payload', write_attempted: false, write_succeeded: false, field: err.field || null, message: err.message });
   }
 
   let updateResponse;
   try {
     updateResponse = await betel(`/orcamentos/${encodeURIComponent(id)}`, { method: 'PUT', body: payload });
   } catch (err) {
-    return res.status(200).json({
-      status: 'error',
-      stage: 'betel_update_transport',
-      write_attempted: true,
-      write_succeeded: false,
-      message: err.message
-    });
+    return res.status(200).json({ status: 'error', stage: 'betel_update_transport', write_attempted: true, write_succeeded: false, message: err.message });
   }
 
   if (!updateResponse.ok) {
@@ -334,28 +331,11 @@ async function editDiagnosticsHandler(req, res) {
   try {
     verificationResponse = await betel(`/orcamentos/${encodeURIComponent(id)}`);
   } catch (err) {
-    return res.status(200).json({
-      status: 'success_unverified',
-      stage: 'verification_transport',
-      write_attempted: true,
-      write_succeeded: true,
-      verification_succeeded: false,
-      requested_changes: changes,
-      message: err.message
-    });
+    return res.status(200).json({ status: 'success_unverified', stage: 'verification_transport', write_attempted: true, write_succeeded: true, verification_succeeded: false, requested_changes: changes, message: err.message });
   }
 
   if (!verificationResponse.ok) {
-    return res.status(200).json({
-      status: 'success_unverified',
-      stage: 'verification',
-      write_attempted: true,
-      write_succeeded: true,
-      verification_succeeded: false,
-      betel_http_status: verificationResponse.status,
-      requested_changes: changes,
-      betel_details: compactDetails(verificationResponse.data)
-    });
+    return res.status(200).json({ status: 'success_unverified', stage: 'verification', write_attempted: true, write_succeeded: true, verification_succeeded: false, betel_http_status: verificationResponse.status, requested_changes: changes, betel_details: compactDetails(verificationResponse.data) });
   }
 
   const refreshed = proposalData(verificationResponse.data);
@@ -385,12 +365,114 @@ async function editDiagnosticsHandler(req, res) {
   });
 }
 
+async function deleteProposalHandler(req, res) {
+  const id = String(req.params.id || '').trim();
+  if (!CONNECTOR_API_KEY || req.headers.authorization !== `Bearer ${CONNECTOR_API_KEY}`) {
+    return res.status(401).json({ status: 'error', stage: 'authentication', delete_attempted: false, delete_succeeded: false, message: 'unauthorized' });
+  }
+  if (!BETEL_ACCESS_TOKEN || !BETEL_SECRET_ACCESS_TOKEN) {
+    return res.status(200).json({ status: 'error', stage: 'configuration', delete_attempted: false, delete_succeeded: false, message: 'Credenciais Betel nao configuradas no Railway.' });
+  }
+
+  const body = req.body || {};
+  if (body.confirmacao_exclusao !== true) {
+    return res.status(200).json({ status: 'error', stage: 'confirmation', delete_attempted: false, delete_succeeded: false, message: 'confirmacao_exclusao deve ser true apos preview e confirmacao explicita.' });
+  }
+  const codigoConfirmacao = String(body.codigo_confirmacao ?? '').trim();
+  if (!/^\d+$/.test(codigoConfirmacao)) {
+    return res.status(200).json({ status: 'error', stage: 'confirmation', delete_attempted: false, delete_succeeded: false, message: 'codigo_confirmacao numerico e obrigatorio.' });
+  }
+
+  let currentResponse;
+  try {
+    currentResponse = await betel(`/orcamentos/${encodeURIComponent(id)}`);
+  } catch (err) {
+    return res.status(200).json({ status: 'error', stage: 'load_current_proposal_transport', delete_attempted: false, delete_succeeded: false, message: err.message });
+  }
+  if (!currentResponse.ok) {
+    return res.status(200).json({ status: 'error', stage: 'load_current_proposal', delete_attempted: false, delete_succeeded: false, betel_http_status: currentResponse.status, betel_details: compactDetails(currentResponse.data) });
+  }
+
+  const current = proposalData(currentResponse.data);
+  const codigoAtual = String(current?.codigo ?? '').trim();
+  if (!current || !codigoAtual) {
+    return res.status(200).json({ status: 'error', stage: 'load_current_proposal', delete_attempted: false, delete_succeeded: false, message: 'Resposta do Betel sem proposta interpretavel.' });
+  }
+  if (codigoAtual !== codigoConfirmacao) {
+    return res.status(200).json({
+      status: 'error',
+      stage: 'confirmation_mismatch',
+      delete_attempted: false,
+      delete_succeeded: false,
+      id,
+      codigo_atual: codigoAtual,
+      codigo_confirmacao: codigoConfirmacao,
+      message: 'codigo_confirmacao nao corresponde a proposta encontrada. Nenhuma exclusao foi tentada.'
+    });
+  }
+
+  const snapshot = {
+    id,
+    codigo: codigoAtual,
+    cliente_id: current?.cliente_id ?? null,
+    nome_cliente: current?.nome_cliente ?? null,
+    valor_total: current?.valor_total ?? null,
+    data: current?.data ?? null,
+    previsao_entrega: current?.previsao_entrega ?? null,
+    situacao_id: current?.situacao_id ?? null,
+    nome_situacao: current?.nome_situacao ?? null
+  };
+
+  let deleteResponse;
+  try {
+    deleteResponse = await betel(`/orcamentos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  } catch (err) {
+    return res.status(200).json({ status: 'error', stage: 'betel_delete_transport', delete_attempted: true, delete_succeeded: false, proposal_before_delete: snapshot, message: err.message });
+  }
+  if (!deleteResponse.ok) {
+    return res.status(200).json({ status: 'error', stage: 'betel_delete', delete_attempted: true, delete_succeeded: false, proposal_before_delete: snapshot, betel_http_status: deleteResponse.status, betel_details: compactDetails(deleteResponse.data) });
+  }
+
+  let verificationResponse;
+  try {
+    verificationResponse = await betel(`/orcamentos/${encodeURIComponent(id)}`);
+  } catch (err) {
+    return res.status(200).json({ status: 'success_unverified', stage: 'verification_transport', delete_attempted: true, delete_succeeded: true, verification_succeeded: false, proposal_before_delete: snapshot, betel_delete_result: compactDetails(deleteResponse.data), message: err.message });
+  }
+
+  if (verificationResponse.ok) {
+    return res.status(200).json({
+      status: 'success_with_verification_warning',
+      stage: 'verification',
+      delete_attempted: true,
+      delete_succeeded: true,
+      verification_succeeded: false,
+      proposal_before_delete: snapshot,
+      betel_delete_result: compactDetails(deleteResponse.data),
+      message: 'Betel confirmou a exclusao, mas a proposta ainda foi retornada na verificacao. Nao repetir DELETE sem nova analise.'
+    });
+  }
+
+  return res.status(200).json({
+    status: 'success',
+    stage: 'completed',
+    delete_attempted: true,
+    delete_succeeded: true,
+    verification_succeeded: true,
+    proposal_absent_after_delete: true,
+    proposal_before_delete: snapshot,
+    betel_delete_result: compactDetails(deleteResponse.data),
+    verification_http_status: verificationResponse.status
+  });
+}
+
 express.application.use = function patchedUse(...args) {
   const proxyFn = args.length === 1 && typeof args[0] === 'function' ? args[0] : null;
   if (!diagnosticsRouteInstalled && proxyFn?.name === 'proxyToLegacy') {
     diagnosticsRouteInstalled = true;
     originalPut.call(this, '/erp/orcamentos/:id', editDiagnosticsHandler);
-    console.log('Installed staged proposal edit diagnostics route before legacy proxy');
+    originalDelete.call(this, '/erp/orcamentos/:id', deleteProposalHandler);
+    console.log('Installed proposal edit diagnostics and safe delete routes before legacy proxy');
   }
   return originalUse.apply(this, args);
 };
