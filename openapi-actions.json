@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agente de Propostas Seta Telecom",
-    "version": "2.0.5",
+    "version": "2.0.6",
     "description": "Action unica do Agente de Propostas para ERP Betel, HubSpot e registro do fluxo comercial."
   },
   "servers": [
@@ -103,7 +103,7 @@
       "post": {
         "operationId": "criarOrcamento",
         "summary": "Cria proposta no ERP",
-        "description": "Antes de criar, confirme cliente, tipo, solucao, produtos, quantidades, valores, meses quando aplicavel, moeda, vendedor e validade. Para locacao, prazo_entrega, valor_frete e SLA sao obrigatorios. Para spareparts, SLA e obrigatorio. O backend sempre substitui qualquer texto recebido em introducao pelo texto padronizado vigente. Exija confirmacao explicita imediatamente antes da gravacao.",
+        "description": "Exige confirmacao previa. Em locacao, prazo_entrega, valor_frete e SLA sao obrigatorios; em spareparts, SLA. O backend substitui introducao pelo texto padronizado.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrcamentoInput"}}}},
         "responses": {
           "200": {"description": "Proposta criada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
