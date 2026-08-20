@@ -33,11 +33,13 @@ Em caso de falha: FALHOU -> DIAGNOSTICO -> CORRECAO -> QA.
 - [x] workflow GitHub Actions para push/PR;
 - [x] runner de smoke test de producao;
 - [x] validacao de identidade do commit implantado antes do smoke test;
-- [ ] configurar secrets/variables do smoke test no GitHub;
+- [x] configurar secrets/variables do smoke test no GitHub;
+- [x] preflight de configuracao para falhar rapido quando secret/variable estiver ausente;
+- [x] smoke manual autenticado validado com `production-verification` em sucesso;
 - [ ] tornar QA check obrigatorio antes de merge na branch principal;
 - [ ] ampliar testes de contrato para respostas do ERP/HubSpot.
 
-## Fase 2 - Gerente Tecnico operacional [EM IMPLEMENTACAO]
+## Fase 2 - Gerente Tecnico operacional [FUNCIONAL / EM EVOLUCAO]
 - [x] padrao de issue/tarefa com objetivo, risco e criterios de aceite;
 - [x] instrucoes permanentes do Gerente Tecnico;
 - [x] rotina de triagem de falha: codigo vs configuracao vs terceiro;
@@ -46,6 +48,7 @@ Em caso de falha: FALHOU -> DIAGNOSTICO -> CORRECAO -> QA.
 - [x] relatorio padrao de decisao com risco e controles exigidos;
 - [x] abrir incidente automaticamente quando QA/deploy smoke falhar;
 - [x] integrar evidencias de deploy e smoke test ao ciclo de validacao do Gerente Tecnico;
+- [x] validar o ciclo manual `preflight -> production-verification -> sucesso` sem gravacao comercial;
 - [ ] fechar/reclassificar incidentes automaticamente apos recuperacao;
 - [ ] emitir parecer final consolidado em PR/tarefa apos producao validada.
 
@@ -55,13 +58,19 @@ Em caso de falha: FALHOU -> DIAGNOSTICO -> CORRECAO -> QA.
 - [x] smoke test HubSpot sem gravacao;
 - [x] espera automatica pelo commit exato implantado antes do smoke;
 - [x] criacao automatica de incidente quando validacao de producao falhar;
+- [x] classificacao runtime vs non-runtime para evitar falsos incidentes de deploy;
 - [ ] auditoria e logs estruturados por task/correlation ID;
 - [ ] classificacao automatica aprofundada de incidentes Railway/upstream;
 - [ ] rollback documentado e validado.
 
-## Fase 4 - Estabilizacao do fluxo comercial
+## Fase 4 - Estabilizacao do fluxo comercial [INICIADA]
+Tarefa principal atual: Issue #5 - CRUD de propostas somente por numero comercial.
+
 - [ ] CRUD de proposta totalmente pelo numero comercial para o usuario;
 - [ ] confirmacao segura para edicao/exclusao;
+- [ ] rota publica de DELETE por numero com resolucao interna do ID;
+- [ ] rota publica de PUT/edicao por numero com resolucao interna do ID;
+- [ ] OpenAPI sem exigir ID interno no fluxo recomendado;
 - [ ] regras de pagamento Locacao/SpareParts;
 - [ ] fluxo Deal -> email -> Proposta Enviada -> follow-up -> Ganho/Perdido;
 - [ ] testes de regressao das regras comerciais.
