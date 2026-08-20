@@ -59,9 +59,39 @@ jobs:
       - name: Run static QA
         run: npm run qa
 
-  production-verification:
+  smoke-config-preflight:
     if: ${{ needs.classify-changes.outputs.runtime_changed == 'true' }}
     needs: [classify-changes, static-qa]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate smoke configuration
+        env:
+          CONNECTOR_API_KEY: ${{ secrets.CONNECTOR_API_KEY }}
+          SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL }}
+          SMOKE_PROPOSAL_NUMBER: ${{ vars.SMOKE_PROPOSAL_NUMBER }}
+        shell: bash
+        run: |
+          FAILED=false
+          if [ -z "$CONNECTOR_API_KEY" ]; then
+            echo "::error::CONNECTOR_API_KEY nao esta disponivel como Actions secret neste workflow."
+            FAILED=true
+          fi
+          if [ -z "$SMOKE_BASE_URL" ]; then
+            echo "::error::SMOKE_BASE_URL nao esta configurada como Actions variable."
+            FAILED=true
+          fi
+          if [ -z "$SMOKE_PROPOSAL_NUMBER" ]; then
+            echo "::error::SMOKE_PROPOSAL_NUMBER nao esta configurado como Actions variable."
+            FAILED=true
+          fi
+          if [ "$FAILED" = true ]; then
+            exit 1
+          fi
+          echo "Configuracao de smoke disponivel. Nenhum valor secreto foi exibido."
+
+  production-verification:
+    if: ${{ needs.classify-changes.outputs.runtime_changed == 'true' }}
+    needs: [classify-changes, static-qa, smoke-config-preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 14
     steps:
@@ -72,7 +102,7 @@ jobs:
 
       - name: Wait for exact deployment and run read-only smoke tests
         env:
-          SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL || 'https://seta-erp-connector-production.up.railway.app' }}
+          SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL }}
           SMOKE_PROPOSAL_NUMBER: ${{ vars.SMOKE_PROPOSAL_NUMBER }}
           CONNECTOR_API_KEY: ${{ secrets.CONNECTOR_API_KEY }}
           EXPECTED_DEPLOY_COMMIT: ${{ github.sha }}
@@ -91,8 +121,8 @@ jobs:
           echo "Mudanca sem impacto de runtime. QA estatico concluido; deploy de producao e smoke por commit nao sao exigidos."
 
   technical-manager-failure:
-    if: ${{ always() && (needs.static-qa.result == 'failure' || needs.production-verification.result == 'failure') }}
-    needs: [classify-changes, static-qa, production-verification, non-runtime-verification]
+    if: ${{ always() && (needs.static-qa.result == 'failure' || needs.smoke-config-preflight.result == 'failure' || needs.production-verification.result == 'failure') }}
+    needs: [classify-changes, static-qa, smoke-config-preflight, production-verification, non-runtime-verification]
     runs-on: ubuntu-latest
     steps:
       - name: Open or preserve Technical Manager incident
@@ -102,6 +132,7 @@ jobs:
           SHA: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           STATIC_RESULT: ${{ needs.static-qa.result }}
+          CONFIG_RESULT: ${{ needs.smoke-config-preflight.result }}
           SMOKE_RESULT: ${{ needs.production-verification.result }}
         run: |
           SHORT_SHA="${SHA:0:7}"
@@ -116,6 +147,7 @@ jobs:
 
           Commit: \`$SHA\`
           Static QA: **$STATIC_RESULT**
+          Smoke config preflight: **$CONFIG_RESULT**
           Post-deploy smoke: **$SMOKE_RESULT**
           Workflow: $RUN_URL
 
@@ -127,6 +159,6 @@ jobs:
           - deploy/infraestrutura;
           - integracao externa.
 
-          Nenhuma gravacao comercial deve ser usada para diagnostico.
+          Se o preflight de configuracao falhar, corrigir secrets/variables antes de repetir o smoke. Nenhuma gravacao comercial deve ser usada para diagnostico.
           EOF
           gh issue create --repo "$REPOSITORY" --title "$TITLE" --body-file /tmp/incident.md
