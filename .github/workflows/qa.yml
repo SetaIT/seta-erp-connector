@@ -1,0 +1,38 @@
+name: ERP QA
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  static-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+      - name: Run static QA
+        run: npm run qa
+
+  production-smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: static-qa
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run production smoke tests
+        env:
+          SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL }}
+          SMOKE_PROPOSAL_NUMBER: ${{ vars.SMOKE_PROPOSAL_NUMBER }}
+          CONNECTOR_API_KEY: ${{ secrets.CONNECTOR_API_KEY }}
+        run: npm run qa:smoke
