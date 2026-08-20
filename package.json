@@ -7,7 +7,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node --import ./read-diagnostics-preload.js --import ./edit-diagnostics-preload.js gateway.js",
+    "start": "node --import ./deployment-diagnostics-preload.js --import ./read-diagnostics-preload.js --import ./edit-diagnostics-preload.js gateway.js",
     "qa": "node scripts/qa.mjs",
     "qa:smoke": "node scripts/smoke.mjs",
     "qa:manager": "node scripts/technical-manager-review.mjs"
