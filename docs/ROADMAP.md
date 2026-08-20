@@ -60,10 +60,38 @@ Em caso de falha: FALHOU -> DIAGNOSTICO -> CORRECAO -> QA.
 - [ ] fluxo Deal -> email -> Proposta Enviada -> follow-up -> Ganho/Perdido;
 - [ ] testes de regressao das regras comerciais.
 
-## Fase 5 - MCP [PROXIMA EVOLUCAO]
-Depois da estabilizacao da arquitetura atual, migrar a superficie de ferramentas para um App MCP Seta Telecom, mantendo Railway como camada de regras e orquestracao.
+## Fase 5 - Migracao de producao Railway -> Google Cloud Run
+Executar somente apos a conclusao do QA automatico e a estabilizacao das operacoes CRUD de propostas.
 
-ChatGPT -> App MCP Seta Telecom -> Railway -> Betel ERP / HubSpot / Outlook
+Objetivos:
+- [ ] preparar containerizacao padronizada da API Node.js/Express;
+- [ ] configurar ambiente de producao no Google Cloud Run;
+- [ ] migrar secrets e variaveis de ambiente com controle de acesso;
+- [ ] integrar GitHub Actions ao pipeline de build/deploy;
+- [ ] executar smoke tests automaticos apos cada deploy;
+- [ ] validar logs, healthchecks e observabilidade no Google Cloud;
+- [ ] documentar rollback para a versao anterior;
+- [ ] executar migracao com plano de corte e retorno seguro;
+- [ ] manter Railway temporariamente como homologacao/contingencia durante a transicao;
+- [ ] apos estabilidade comprovada, definir Railway como homologacao ou descontinuar seu uso em producao.
+
+Criterio de entrada desta fase:
+- QA automatico obrigatorio e estavel;
+- CRUD de propostas por numero comercial validado;
+- testes de regressao criticos passando;
+- fluxo de deploy atual documentado;
+- smoke tests de producao confiaveis.
+
+Arquitetura alvo apos a migracao:
+
+ChatGPT / App MCP -> Google Cloud Run -> Betel ERP / HubSpot / Outlook
+
+GitHub -> QA -> Build -> Deploy Cloud Run -> Smoke Test -> Aprovacao automatizada
+
+## Fase 6 - MCP [PROXIMA EVOLUCAO]
+Depois da estabilizacao da arquitetura atual e da migracao de producao para Cloud Run, migrar a superficie de ferramentas para um App MCP Seta Telecom, mantendo a camada de regras e orquestracao desacoplada do provedor de infraestrutura.
+
+ChatGPT -> App MCP Seta Telecom -> Cloud Run -> Betel ERP / HubSpot / Outlook
 
 Ferramentas alvo:
 - consultar_proposta
