@@ -1,0 +1,70 @@
+name: ERP Technical Manager
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    if: ${{ github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Static QA
+        id: qa
+        continue-on-error: true
+        run: npm run qa
+
+      - name: Technical Manager review
+        id: manager
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: HEAD
+          QA_STATUS: ${{ steps.qa.outcome }}
+        run: npm run qa:manager
+
+      - name: Build PR report
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          QA_STATUS: ${{ steps.qa.outcome }}
+          DECISION: ${{ steps.manager.outputs.decision }}
+          RISK: ${{ steps.manager.outputs.risk }}
+        run: |
+          cat > /tmp/manager-comment.md <<EOF
+          ## Gerente Tecnico ERP
+
+          **Decisao:** ${DECISION:-CORRIGIR}
+          **Risco:** ${RISK:-nao-classificado}
+          **QA:** ${QA_STATUS}
+
+          O resultado detalhado esta no resumo deste workflow.
+
+          - QA reprovado => CORRIGIR.
+          - Mudanca critica com QA aprovado => DEPLOY CONTROLADO + smoke test antes de concluir.
+          - Mudanca sem risco alto e QA aprovado => APROVADO PARA MERGE.
+
+          Este parecer nao autoriza gravacoes comerciais reais, exclusoes de producao, uso de novas credenciais ou decisoes de regra de negocio.
+          EOF
+          gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" --body-file /tmp/manager-comment.md
+
+      - name: Enforce QA result
+        if: ${{ steps.qa.outcome != 'success' }}
+        run: exit 1
