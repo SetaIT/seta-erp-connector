@@ -36,14 +36,15 @@ Em caso de falha: FALHOU -> DIAGNOSTICO -> CORRECAO -> QA.
 - [ ] tornar QA check obrigatorio antes de merge na branch principal;
 - [ ] ampliar testes de contrato para respostas do ERP/HubSpot.
 
-## Fase 2 - Gerente Tecnico operacional
-- [ ] padrao de issue/tarefa com objetivo, risco e criterios de aceite;
-- [ ] instrucoes permanentes do Gerente Tecnico;
-- [ ] rotina de triagem de falha: codigo vs configuracao vs terceiro;
-- [ ] review automatico de PR/diff;
-- [ ] bloqueio de conclusao sem build/testes;
-- [ ] relatorio final padrao: mudancas, testes, deploy, smoke e riscos residuais;
-- [ ] mecanismo para reabrir/encaminhar correcao quando QA falhar.
+## Fase 2 - Gerente Tecnico operacional [EM IMPLEMENTACAO]
+- [x] padrao de issue/tarefa com objetivo, risco e criterios de aceite;
+- [x] instrucoes permanentes do Gerente Tecnico;
+- [x] rotina de triagem de falha: codigo vs configuracao vs terceiro;
+- [x] review automatico deterministico de PR/diff;
+- [x] bloqueio do workflow quando QA falhar;
+- [x] relatorio padrao de decisao com risco e controles exigidos;
+- [ ] mecanismo para reabrir/encaminhar correcao automaticamente quando QA falhar;
+- [ ] integrar evidencias de deploy e smoke test ao parecer final do Gerente Tecnico.
 
 ## Fase 3 - Observabilidade e deploy
 - [ ] healthchecks por integracao, nao apenas processo geral;
