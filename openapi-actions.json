@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agente de Propostas Seta Telecom",
-    "version": "2.0.11",
+    "version": "2.0.12",
     "description": "Action unica do Agente de Propostas para ERP Betel, HubSpot e registro do fluxo comercial."
   },
   "servers": [
@@ -18,10 +18,7 @@
         "summary": "Verifica o backend unificado",
         "security": [],
         "responses": {
-          "200": {
-            "description": "Servico ativo",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}
-          }
+          "200": {"description": "Servico ativo", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}
         }
       }
     },
@@ -29,10 +26,8 @@
       "get": {
         "operationId": "consultarContextoCompletoProposta",
         "summary": "Consulta proposta e contexto comercial completo",
-        "description": "Use primeiro quando o usuario informar um numero de proposta existente. Consulta ERP e contexto relacionado no HubSpot sem realizar gravacoes.",
-        "parameters": [
-          {"name": "numero", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[0-9]+$"}}
-        ],
+        "description": "Use para contexto comercial completo. Para localizar uma proposta exclusivamente pelo numero comercial no ERP, prefira consultarOrcamentoPorNumero.",
+        "parameters": [{"name": "numero", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[0-9]+$"}}],
         "responses": {
           "200": {"description": "Contexto completo", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
           "404": {"description": "Proposta nao encontrada"}
@@ -111,18 +106,30 @@
         }
       }
     },
+    "/erp/orcamentos/numero/{numero}": {
+      "get": {
+        "operationId": "consultarOrcamentoPorNumero",
+        "summary": "Consulta proposta pelo numero comercial e resolve o ID interno automaticamente",
+        "description": "Use esta operacao sempre que o usuario informar somente o numero da proposta. Nunca solicite o ID interno ao usuario. O backend busca o numero no ERP, resolve o ID interno, consulta os detalhes e valida a identidade da proposta.",
+        "parameters": [{"name": "numero", "in": "path", "required": true, "description": "Numero comercial da proposta, por exemplo 4623.", "schema": {"type": "string", "pattern": "^[0-9]+$"}}],
+        "responses": {
+          "200": {"description": "Proposta localizada ou diagnostico estruturado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}
+        }
+      }
+    },
     "/erp/orcamentos/{id}": {
       "get": {
         "operationId": "consultarOrcamento",
         "summary": "Consulta proposta pelo ID interno do ERP",
+        "description": "Operacao tecnica. Nao solicite o ID interno ao usuario; resolva-o antes com consultarOrcamentoPorNumero.",
         "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
         "responses": {"200": {"description": "Proposta encontrada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}
       },
       "put": {
         "operationId": "editarOrcamento",
         "summary": "Edita proposta existente no ERP",
-        "description": "Consulta a proposta atual, preserva os campos obrigatorios e altera somente os campos informados. Exige preview e confirmacao explicita antes da gravacao.",
-        "parameters": [{"name": "id", "in": "path", "required": true, "description": "ID interno da proposta no ERP, nao o numero comercial.", "schema": {"type": "string"}}],
+        "description": "Consulta a proposta atual, preserva os campos obrigatorios e altera somente os campos informados. Exige preview e confirmacao explicita antes da gravacao. O ID interno deve ser resolvido internamente, nunca solicitado ao usuario.",
+        "parameters": [{"name": "id", "in": "path", "required": true, "description": "ID interno resolvido automaticamente pelo agente.", "schema": {"type": "string"}}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrcamentoEditInput"}}}},
         "responses": {
           "200": {"description": "Proposta editada e consultada novamente para verificacao", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
@@ -132,8 +139,8 @@
       "delete": {
         "operationId": "excluirOrcamento",
         "summary": "Exclui definitivamente uma proposta do ERP",
-        "description": "Use somente depois de consultar a proposta, mostrar preview exato e obter confirmacao explicita de exclusao. O backend valida o codigo comercial antes de excluir e consulta novamente para verificar a remocao.",
-        "parameters": [{"name": "id", "in": "path", "required": true, "description": "ID interno da proposta no ERP, nao o numero comercial.", "schema": {"type": "string"}}],
+        "description": "Use somente depois de consultar a proposta pelo numero comercial com consultarOrcamentoPorNumero, mostrar preview exato e obter confirmacao explicita. O ID interno e resolvido automaticamente e nunca deve ser solicitado ao usuario.",
+        "parameters": [{"name": "id", "in": "path", "required": true, "description": "ID interno resolvido automaticamente pelo agente a partir do numero comercial.", "schema": {"type": "string"}}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrcamentoDeleteInput"}}}},
         "responses": {
           "200": {"description": "Resultado da exclusao e verificacao posterior", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
@@ -153,9 +160,7 @@
         "operationId": "verificarConexaoHubSpot",
         "summary": "Testa a autenticacao real do HubSpot no Railway",
         "description": "Executa uma chamada real de leitura no HubSpot usando HUBSPOT_ACCESS_TOKEN. Use para diagnosticar token, autenticacao e permissao antes de testar outras operacoes HubSpot.",
-        "responses": {
-          "200": {"description": "Resultado do teste de autenticacao do HubSpot", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}
-        }
+        "responses": {"200": {"description": "Resultado do teste de autenticacao do HubSpot", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}
       }
     },
     "/erp/hubspot/empresas": {
@@ -235,184 +240,19 @@
   },
   "components": {
     "schemas": {
-      "GenericResponse": {
-        "type": "object",
-        "properties": {
-          "status": {"type": "string"},
-          "message": {"type": "string"},
-          "id": {"type": "string"}
-        },
-        "additionalProperties": true
-      },
-      "ClienteInput": {
-        "type": "object",
-        "required": ["tipo_pessoa", "nome"],
-        "properties": {
-          "tipo_pessoa": {"type": "string", "enum": ["PF", "PJ", "ES"]},
-          "nome": {"type": "string"},
-          "razao_social": {"type": "string"},
-          "cnpj": {"type": "string"},
-          "cpf": {"type": "string"},
-          "email": {"type": "string", "format": "email"},
-          "telefone": {"type": "string"},
-          "celular": {"type": "string"},
-          "usuario_id": {"type": "string"},
-          "loja_id": {"type": "string"}
-        }
-      },
-      "ProdutoOrcamento": {
-        "type": "object",
-        "required": ["produto"],
-        "properties": {
-          "produto": {
-            "type": "object",
-            "required": ["id", "quantidade", "valor_venda"],
-            "properties": {
-              "id": {"type": "string"},
-              "variacao_id": {"type": "string"},
-              "quantidade": {"type": "string"},
-              "valor_venda": {"type": "string"},
-              "tipo_valor_id": {"type": "string"}
-            }
-          }
-        }
-      },
-      "OrcamentoInput": {
-        "type": "object",
-        "required": ["tipo", "codigo", "cliente_id", "data", "situacao_id", "validade", "tipo_proposta", "solucao", "produtos"],
-        "properties": {
-          "tipo": {"type": "string"},
-          "codigo": {"type": "integer"},
-          "cliente_id": {"type": "string"},
-          "vendedor_id": {"type": "string"},
-          "data": {"type": "string", "format": "date", "description": "Data de criacao da proposta no formato YYYY-MM-DD."},
-          "situacao_id": {"type": "string"},
-          "validade": {"type": "string", "description": "Validade informada pelo usuario, por exemplo 10 dias."},
-          "tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]},
-          "solucao": {"type": "string"},
-          "meses": {"type": "integer", "minimum": 1},
-          "moeda": {"type": "string", "enum": ["BRL", "USD"], "default": "BRL"},
-          "prazo_entrega_dias": {"type": "integer", "minimum": 1, "description": "Obrigatorio para locacao. Dias corridos desde a data da proposta. O backend envia prazo_entrega ao ERP em DD-MM-YYYY e usa o numero de dias na introducao."},
-          "sla": {"type": "string", "description": "Obrigatorio para locacao e spareparts. Exemplo: 8x5 NBD."},
-          "introducao": {"type": "string", "description": "Ignorado pelo backend na criacao; qualquer texto existente e substituido pela introducao padronizada."},
-          "observacoes": {"type": "string"},
-          "observacoes_interna": {"type": "string"},
-          "valor_frete": {"type": "number", "description": "Obrigatorio para locacao, inclusive quando o valor for zero."},
-          "desconto_valor": {"type": "string"},
-          "desconto_porcentagem": {"type": "string"},
-          "produtos": {"type": "array", "minItems": 1, "items": {"$ref": "#/components/schemas/ProdutoOrcamento"}}
-        }
-      },
-      "OrcamentoEditInput": {
-        "type": "object",
-        "required": ["confirmacao_edicao"],
-        "properties": {
-          "confirmacao_edicao": {"type": "boolean", "const": true, "description": "Deve ser true somente apos preview e confirmacao explicita do usuario."},
-          "data": {"type": "string", "format": "date", "description": "Nova data da proposta no formato YYYY-MM-DD."},
-          "validade": {"type": "string"},
-          "situacao_id": {"type": "string"},
-          "vendedor_id": {"type": "string"},
-          "previsao_entrega": {"type": ["string", "null"]},
-          "prazo_entrega": {"type": ["string", "null"], "description": "Quando usado, respeitar o formato exigido pelo ERP para este campo."},
-          "valor_frete": {"type": "number"},
-          "introducao": {"type": ["string", "null"]},
-          "observacoes": {"type": ["string", "null"]},
-          "observacoes_interna": {"type": ["string", "null"]}
-        },
-        "minProperties": 2
-      },
-      "OrcamentoDeleteInput": {
-        "type": "object",
-        "required": ["confirmacao_exclusao", "codigo_confirmacao"],
-        "properties": {
-          "confirmacao_exclusao": {"type": "boolean", "const": true, "description": "Deve ser true somente apos preview e confirmacao explicita da exclusao definitiva."},
-          "codigo_confirmacao": {"type": "string", "description": "Numero comercial exato da proposta que sera excluida. Deve coincidir com o codigo lido do ERP."}
-        },
-        "additionalProperties": false
-      },
-      "ContatoInput": {
-        "type": "object",
-        "required": ["email"],
-        "properties": {
-          "email": {"type": "string", "format": "email"},
-          "nome": {"type": "string"},
-          "sobrenome": {"type": "string"}
-        }
-      },
-      "DealInput": {
-        "type": "object",
-        "required": ["numero_proposta", "empresa", "domain", "solucao", "link_proposta", "tipo_proposta"],
-        "properties": {
-          "numero_proposta": {"type": "string"},
-          "empresa": {"type": "string"},
-          "domain": {"type": "string"},
-          "solucao": {"type": "string"},
-          "link_proposta": {"type": "string"},
-          "tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]},
-          "valor_mensal": {"type": "number"},
-          "meses": {"type": "integer", "minimum": 1},
-          "valor_negocio": {"type": "number"},
-          "moeda": {"type": "string", "enum": ["BRL", "USD"], "default": "BRL"},
-          "contatos": {"type": "array", "items": {"$ref": "#/components/schemas/ContatoInput"}},
-          "hubspot_owner_id": {"type": "string"}
-        }
-      },
-      "EmailPessoa": {
-        "type": "object",
-        "required": ["email"],
-        "properties": {
-          "email": {"type": "string", "format": "email"},
-          "firstName": {"type": "string"},
-          "lastName": {"type": "string"}
-        }
-      },
-      "EmailEnviadoInput": {
-        "type": "object",
-        "required": ["envio_confirmado", "remetente", "destinatarios", "assunto", "texto"],
-        "properties": {
-          "envio_confirmado": {"type": "boolean", "const": true},
-          "remetente": {"$ref": "#/components/schemas/EmailPessoa"},
-          "destinatarios": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"$ref": "#/components/schemas/EmailPessoa"}},
-          "cc": {"type": "array", "items": {"$ref": "#/components/schemas/EmailPessoa"}},
-          "bcc": {"type": "array", "items": {"$ref": "#/components/schemas/EmailPessoa"}},
-          "assunto": {"type": "string"},
-          "texto": {"type": "string"},
-          "enviado_em": {"type": "string", "format": "date-time"},
-          "outlook_message_id": {"type": "string"},
-          "hubspot_owner_id": {"type": "string"},
-          "deal_id": {"type": "string"},
-          "company_id": {"type": "string"},
-          "contact_ids": {"type": "array", "items": {"type": "string"}},
-          "atualizar_etapa": {"type": "boolean", "default": false},
-          "tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]}
-        }
-      },
-      "PropostaEnviadaInput": {
-        "type": "object",
-        "required": ["tipo_proposta", "envio_confirmado"],
-        "properties": {
-          "tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]},
-          "envio_confirmado": {"type": "boolean", "const": true},
-          "solucao": {"type": "string"}
-        }
-      },
-      "GanhoInput": {
-        "type": "object",
-        "required": ["tipo_proposta", "motivos_ganho", "confirmacao_ganho"],
-        "properties": {
-          "tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]},
-          "motivos_ganho": {
-            "type": "array",
-            "minItems": 1,
-            "uniqueItems": true,
-            "items": {"type": "string", "enum": ["Nossa Solução foi a Melhor", "Disponibilidade", "Prazo de Entrega", "Relacionamento", "Preço"]}
-          },
-          "confirmacao_ganho": {"type": "boolean", "const": true}
-        }
-      }
+      "GenericResponse": {"type": "object", "properties": {"status": {"type": "string"}, "message": {"type": "string"}, "id": {"type": "string"}}, "additionalProperties": true},
+      "ClienteInput": {"type": "object", "required": ["tipo_pessoa", "nome"], "properties": {"tipo_pessoa": {"type": "string", "enum": ["PF", "PJ", "ES"]}, "nome": {"type": "string"}, "razao_social": {"type": "string"}, "cnpj": {"type": "string"}, "cpf": {"type": "string"}, "email": {"type": "string", "format": "email"}, "telefone": {"type": "string"}, "celular": {"type": "string"}, "usuario_id": {"type": "string"}, "loja_id": {"type": "string"}}},
+      "ProdutoOrcamento": {"type": "object", "required": ["produto"], "properties": {"produto": {"type": "object", "required": ["id", "quantidade", "valor_venda"], "properties": {"id": {"type": "string"}, "variacao_id": {"type": "string"}, "quantidade": {"type": "string"}, "valor_venda": {"type": "string"}, "tipo_valor_id": {"type": "string"}}}}},
+      "OrcamentoInput": {"type": "object", "required": ["tipo", "codigo", "cliente_id", "data", "situacao_id", "validade", "tipo_proposta", "solucao", "produtos"], "properties": {"tipo": {"type": "string"}, "codigo": {"type": "integer"}, "cliente_id": {"type": "string"}, "vendedor_id": {"type": "string"}, "data": {"type": "string", "format": "date"}, "situacao_id": {"type": "string"}, "validade": {"type": "string"}, "tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]}, "solucao": {"type": "string"}, "meses": {"type": "integer", "minimum": 1}, "moeda": {"type": "string", "enum": ["BRL", "USD"], "default": "BRL"}, "prazo_entrega_dias": {"type": "integer", "minimum": 1}, "sla": {"type": "string"}, "introducao": {"type": "string"}, "observacoes": {"type": "string"}, "observacoes_interna": {"type": "string"}, "valor_frete": {"type": "number"}, "desconto_valor": {"type": "string"}, "desconto_porcentagem": {"type": "string"}, "produtos": {"type": "array", "minItems": 1, "items": {"$ref": "#/components/schemas/ProdutoOrcamento"}}}},
+      "OrcamentoEditInput": {"type": "object", "required": ["confirmacao_edicao"], "properties": {"confirmacao_edicao": {"type": "boolean", "const": true}, "data": {"type": "string", "format": "date"}, "validade": {"type": "string"}, "situacao_id": {"type": "string"}, "vendedor_id": {"type": "string"}, "previsao_entrega": {"type": ["string", "null"]}, "prazo_entrega": {"type": ["string", "null"]}, "valor_frete": {"type": "number"}, "introducao": {"type": ["string", "null"]}, "observacoes": {"type": ["string", "null"]}, "observacoes_interna": {"type": ["string", "null"]}}, "minProperties": 2},
+      "OrcamentoDeleteInput": {"type": "object", "required": ["confirmacao_exclusao", "codigo_confirmacao"], "properties": {"confirmacao_exclusao": {"type": "boolean", "const": true}, "codigo_confirmacao": {"type": "string"}}, "additionalProperties": false},
+      "ContatoInput": {"type": "object", "required": ["email"], "properties": {"email": {"type": "string", "format": "email"}, "nome": {"type": "string"}, "sobrenome": {"type": "string"}}},
+      "DealInput": {"type": "object", "required": ["numero_proposta", "empresa", "domain", "solucao", "link_proposta", "tipo_proposta"], "properties": {"numero_proposta": {"type": "string"}, "empresa": {"type": "string"}, "domain": {"type": "string"}, "solucao": {"type": "string"}, "link_proposta": {"type": "string"}, "tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]}, "valor_mensal": {"type": "number"}, "meses": {"type": "integer", "minimum": 1}, "valor_negocio": {"type": "number"}, "moeda": {"type": "string", "enum": ["BRL", "USD"], "default": "BRL"}, "contatos": {"type": "array", "items": {"$ref": "#/components/schemas/ContatoInput"}}, "hubspot_owner_id": {"type": "string"}}},
+      "EmailPessoa": {"type": "object", "required": ["email"], "properties": {"email": {"type": "string", "format": "email"}, "firstName": {"type": "string"}, "lastName": {"type": "string"}}},
+      "EmailEnviadoInput": {"type": "object", "required": ["envio_confirmado", "remetente", "destinatarios", "assunto", "texto"], "properties": {"envio_confirmado": {"type": "boolean", "const": true}, "remetente": {"$ref": "#/components/schemas/EmailPessoa"}, "destinatarios": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"$ref": "#/components/schemas/EmailPessoa"}}, "cc": {"type": "array", "items": {"$ref": "#/components/schemas/EmailPessoa"}}, "bcc": {"type": "array", "items": {"$ref": "#/components/schemas/EmailPessoa"}}, "assunto": {"type": "string"}, "texto": {"type": "string"}, "enviado_em": {"type": "string", "format": "date-time"}, "outlook_message_id": {"type": "string"}, "hubspot_owner_id": {"type": "string"}, "deal_id": {"type": "string"}, "company_id": {"type": "string"}, "contact_ids": {"type": "array", "items": {"type": "string"}}, "atualizar_etapa": {"type": "boolean", "default": false}, "tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]}}},
+      "PropostaEnviadaInput": {"type": "object", "required": ["tipo_proposta", "envio_confirmado"], "properties": {"tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]}, "envio_confirmado": {"type": "boolean", "const": true}, "solucao": {"type": "string"}}},
+      "GanhoInput": {"type": "object", "required": ["tipo_proposta", "motivos_ganho", "confirmacao_ganho"], "properties": {"tipo_proposta": {"type": "string", "enum": ["locacao", "compra", "spareparts"]}, "motivos_ganho": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["Nossa Solução foi a Melhor", "Disponibilidade", "Prazo de Entrega", "Relacionamento", "Preço"]}}, "confirmacao_ganho": {"type": "boolean", "const": true}}}
     },
-    "securitySchemes": {
-      "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "Bearer"}
-    }
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "Bearer"}}
   }
 }
