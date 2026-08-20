@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agente de Propostas Seta Telecom",
-    "version": "2.0.12",
-    "description": "Action unica do Agente de Propostas para ERP Betel, HubSpot e registro do fluxo comercial."
+    "version": "2.0.13",
+    "description": "Action unica do Agente de Propostas para ERP Betel, HubSpot e registro do fluxo comercial. Para propostas existentes, a entrada primaria e sempre o numero comercial via consultarOrcamentoPorNumero."
   },
   "servers": [
     {"url": "https://seta-erp-connector-production.up.railway.app"}
@@ -25,11 +25,11 @@
     "/erp/propostas/{numero}/contexto": {
       "get": {
         "operationId": "consultarContextoCompletoProposta",
-        "summary": "Consulta proposta e contexto comercial completo",
-        "description": "Use para contexto comercial completo. Para localizar uma proposta exclusivamente pelo numero comercial no ERP, prefira consultarOrcamentoPorNumero.",
+        "summary": "Enriquece uma proposta ja localizada com contexto comercial ERP e HubSpot",
+        "description": "NAO use como primeira chamada para consultar, editar ou excluir proposta existente. Primeiro use consultarOrcamentoPorNumero para validar a proposta no ERP e resolver o ID interno. Use esta operacao somente depois, quando houver necessidade de HubSpot, Deal, empresa, contatos, emails ou proxima acao comercial. Falha aqui nao invalida dados ERP ja confirmados.",
         "parameters": [{"name": "numero", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[0-9]+$"}}],
         "responses": {
-          "200": {"description": "Contexto completo", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
+          "200": {"description": "Contexto comercial completo ou parcial", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
           "404": {"description": "Proposta nao encontrada"}
         }
       }
@@ -109,27 +109,27 @@
     "/erp/orcamentos/numero/{numero}": {
       "get": {
         "operationId": "consultarOrcamentoPorNumero",
-        "summary": "Consulta proposta pelo numero comercial e resolve o ID interno automaticamente",
-        "description": "Use esta operacao sempre que o usuario informar somente o numero da proposta. Nunca solicite o ID interno ao usuario. O backend busca o numero no ERP, resolve o ID interno, consulta os detalhes e valida a identidade da proposta.",
-        "parameters": [{"name": "numero", "in": "path", "required": true, "description": "Numero comercial da proposta, por exemplo 4623.", "schema": {"type": "string", "pattern": "^[0-9]+$"}}],
+        "summary": "PRIMEIRA operacao para qualquer proposta existente informada pelo numero comercial",
+        "description": "OPERACAO PRIMARIA E OBRIGATORIA quando o usuario disser consultar, editar ou excluir uma proposta pelo numero comercial. Chame esta operacao antes de consultarContextoCompletoProposta, consultarOrcamento, editarOrcamento ou excluirOrcamento. Nunca solicite o ID interno ao usuario. O backend busca a proposta no ERP, resolve o ID interno, carrega os detalhes e valida que o codigo retornado corresponde ao numero solicitado.",
+        "parameters": [{"name": "numero", "in": "path", "required": true, "description": "Numero comercial informado pelo usuario, por exemplo 4623.", "schema": {"type": "string", "pattern": "^[0-9]+$"}}],
         "responses": {
-          "200": {"description": "Proposta localizada ou diagnostico estruturado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}
+          "200": {"description": "Proposta localizada no ERP ou diagnostico estruturado sem gravacao", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}
         }
       }
     },
     "/erp/orcamentos/{id}": {
       "get": {
         "operationId": "consultarOrcamento",
-        "summary": "Consulta proposta pelo ID interno do ERP",
-        "description": "Operacao tecnica. Nao solicite o ID interno ao usuario; resolva-o antes com consultarOrcamentoPorNumero.",
+        "summary": "Consulta tecnica pelo ID interno ja resolvido",
+        "description": "Operacao tecnica secundaria. Nao use como entrada quando o usuario informar numero comercial e nunca solicite o ID interno. Resolva primeiro com consultarOrcamentoPorNumero.",
         "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
         "responses": {"200": {"description": "Proposta encontrada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}
       },
       "put": {
         "operationId": "editarOrcamento",
-        "summary": "Edita proposta existente no ERP",
-        "description": "Consulta a proposta atual, preserva os campos obrigatorios e altera somente os campos informados. Exige preview e confirmacao explicita antes da gravacao. O ID interno deve ser resolvido internamente, nunca solicitado ao usuario.",
-        "parameters": [{"name": "id", "in": "path", "required": true, "description": "ID interno resolvido automaticamente pelo agente.", "schema": {"type": "string"}}],
+        "summary": "Edita proposta existente no ERP usando ID resolvido internamente",
+        "description": "Antes desta operacao, use consultarOrcamentoPorNumero, mostre preview exato e obtenha confirmacao explicita. O ID interno deve ser resolvido automaticamente e nunca solicitado ao usuario. Preserva os campos obrigatorios e altera somente os campos informados.",
+        "parameters": [{"name": "id", "in": "path", "required": true, "description": "ID interno resolvido automaticamente a partir do numero comercial.", "schema": {"type": "string"}}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrcamentoEditInput"}}}},
         "responses": {
           "200": {"description": "Proposta editada e consultada novamente para verificacao", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
@@ -138,9 +138,9 @@
       },
       "delete": {
         "operationId": "excluirOrcamento",
-        "summary": "Exclui definitivamente uma proposta do ERP",
-        "description": "Use somente depois de consultar a proposta pelo numero comercial com consultarOrcamentoPorNumero, mostrar preview exato e obter confirmacao explicita. O ID interno e resolvido automaticamente e nunca deve ser solicitado ao usuario.",
-        "parameters": [{"name": "id", "in": "path", "required": true, "description": "ID interno resolvido automaticamente pelo agente a partir do numero comercial.", "schema": {"type": "string"}}],
+        "summary": "Exclui definitivamente proposta usando ID resolvido internamente",
+        "description": "Antes desta operacao, use obrigatoriamente consultarOrcamentoPorNumero, mostre o preview exato da proposta e obtenha confirmacao explicita imediatamente anterior. O ID interno e detalhe tecnico: resolva-o automaticamente e nunca o solicite ao usuario.",
+        "parameters": [{"name": "id", "in": "path", "required": true, "description": "ID interno resolvido automaticamente a partir do numero comercial.", "schema": {"type": "string"}}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrcamentoDeleteInput"}}}},
         "responses": {
           "200": {"description": "Resultado da exclusao e verificacao posterior", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
@@ -212,7 +212,7 @@
         "operationId": "registrarEmailEnviadoHubSpot",
         "summary": "Registra no HubSpot um e-mail realmente enviado",
         "description": "Execute somente depois de o envio real pelo Outlook ter sido confirmado.",
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmailEnviadoInput"}}}},
+        "requestBody": {"required": true, "content": {"application/json": {"$ref": "#/components/schemas/EmailEnviadoInput"}}},
         "responses": {"201": {"description": "E-mail registrado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}
       }
     },
