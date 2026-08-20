@@ -1,0 +1,59 @@
+name: ERP Technical Task
+description: Tarefa conduzida pelo Gerente Tecnico ERP
+title: "[ERP] "
+labels: []
+body:
+  - type: textarea
+    id: objetivo
+    attributes:
+      label: Objetivo de negocio
+      description: O que deve passar a ser possivel para o usuario?
+    validations:
+      required: true
+
+  - type: textarea
+    id: escopo
+    attributes:
+      label: Escopo tecnico
+      description: Componentes, rotas e integracoes afetadas.
+    validations:
+      required: true
+
+  - type: textarea
+    id: aceite
+    attributes:
+      label: Criterios de aceite
+      description: Liste resultados objetivos e testaveis.
+      placeholder: |
+        - [ ] comportamento principal validado
+        - [ ] regressao critica avaliada
+        - [ ] npm run qa aprovado
+        - [ ] deploy validado quando aplicavel
+        - [ ] smoke test aprovado quando aplicavel
+    validations:
+      required: true
+
+  - type: textarea
+    id: riscos
+    attributes:
+      label: Riscos e restricoes
+      description: Inclua gravacoes destrutivas, regras comerciais, segredos e dependencias externas.
+
+  - type: textarea
+    id: evidencias
+    attributes:
+      label: Evidencias para conclusao
+      description: Preencher ao final com testes, commit/PR, deploy e smoke test.
+
+  - type: dropdown
+    id: autorizacao
+    attributes:
+      label: Exige autorizacao humana irreversivel?
+      options:
+        - "Nao"
+        - "Sim - gravacao comercial"
+        - "Sim - exclusao"
+        - "Sim - envio ao cliente"
+        - "Sim - outra"
+    validations:
+      required: true
