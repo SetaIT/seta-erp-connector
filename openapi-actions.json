@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agente de Propostas Seta Telecom",
-    "version": "2.0.15",
+    "version": "2.0.16",
     "description": "Action unica do Agente de Propostas para ERP Betel, HubSpot e fluxo comercial. Para propostas existentes, consultar, editar e excluir usam sempre o numero comercial."
   },
   "servers": [
@@ -18,6 +18,14 @@
         "summary": "Verifica o backend unificado",
         "security": [],
         "responses": {"200": {"description": "Servico ativo", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}
+      }
+    },
+    "/action-probe": {
+      "get": {
+        "operationId": "testarConexaoActionRailway",
+        "summary": "Testa somente a comunicacao entre a Action e o Railway",
+        "description": "Diagnostico puro sem ERP ou HubSpot. Use para isolar ClientResponseError entre o GPT Action e o backend Railway.",
+        "responses": {"200": {"description": "Comunicacao Action-Railway funcional", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}
       }
     },
     "/erp/propostas/{numero}/contexto": {
@@ -87,7 +95,7 @@
         "operationId": "criarOrcamento",
         "summary": "Cria proposta no ERP",
         "description": "Em locacao informe prazo_entrega_dias, frete e SLA. O backend calcula prazo_entrega em DD-MM-YYYY e gera a introducao. Exige confirmacao previa.",
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrcamentoInput"}}}},
+        "requestBody": {"required": true,"content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrcamentoInput"}}}},
         "responses": {"200": {"description": "Proposta criada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}, "400": {"description": "Dados invalidos"}}
       }
     },
@@ -125,36 +133,16 @@
         "responses": {"200": {"description": "Proposta encontrada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}
       }
     },
-    "/erp/hubspot/configuracao-proposta": {
-      "get": {"operationId": "buscarConfiguracaoComercialHubSpot", "summary": "Retorna regras comerciais e pipelines", "responses": {"200": {"description": "Configuracao comercial", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}
-    },
-    "/erp/hubspot/health": {
-      "get": {"operationId": "verificarConexaoHubSpot", "summary": "Testa a autenticacao real do HubSpot no Railway", "description": "Executa chamada real de leitura no HubSpot para diagnosticar autenticacao e permissao.", "responses": {"200": {"description": "Resultado do teste", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}
-    },
-    "/erp/hubspot/empresas": {
-      "get": {"operationId": "buscarEmpresaHubSpot", "summary": "Busca empresa no HubSpot pelo dominio", "parameters": [{"name": "domain", "in": "query", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Empresa encontrada ou busca vazia", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}
-    },
-    "/erp/hubspot/empresas/{id}/contatos": {
-      "get": {"operationId": "buscarContatosDaEmpresaHubSpot", "summary": "Lista contatos associados a uma empresa", "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Contatos associados", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}
-    },
-    "/erp/hubspot/contatos": {
-      "get": {"operationId": "buscarContatoHubSpot", "summary": "Busca contato no HubSpot por e-mail", "parameters": [{"name": "email", "in": "query", "required": true, "schema": {"type": "string", "format": "email"}}], "responses": {"200": {"description": "Contato encontrado ou busca vazia", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}
-    },
-    "/erp/hubspot/negocios": {
-      "get": {"operationId": "buscarNegocioPorProposta", "summary": "Verifica duplicidade de Deal pelo numero da proposta", "parameters": [{"name": "numero_proposta", "in": "query", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Resultado da busca", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}
-    },
-    "/erp/hubspot/negocios-da-proposta": {
-      "post": {"operationId": "criarNegocioHubSpotDaProposta", "summary": "Cria Deal no HubSpot a partir da proposta", "description": "Verifique duplicidade, empresa e contatos e obtenha confirmacao explicita antes da gravacao.", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DealInput"}}}}, "responses": {"200": {"description": "Deal criado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}, "409": {"description": "Deal duplicado"}}}
-    },
-    "/erp/hubspot/emails/registrar-envio": {
-      "post": {"operationId": "registrarEmailEnviadoHubSpot", "summary": "Registra no HubSpot um e-mail realmente enviado", "description": "Execute somente depois de o envio real pelo Outlook ter sido confirmado.", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmailEnviadoInput"}}}}, "responses": {"201": {"description": "E-mail registrado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}
-    },
-    "/erp/hubspot/negocios/{id}/marcar-proposta-enviada": {
-      "post": {"operationId": "marcarPropostaEnviadaHubSpot", "summary": "Move Deal para Proposta Enviada", "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PropostaEnviadaInput"}}}}, "responses": {"200": {"description": "Deal atualizado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}
-    },
-    "/erp/hubspot/negocios/{id}/marcar-ganho": {
-      "post": {"operationId": "marcarNegocioGanhoHubSpot", "summary": "Marca Deal como Ganho com um ou varios motivos", "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GanhoInput"}}}}, "responses": {"200": {"description": "Deal marcado como Ganho", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}, "400": {"description": "Confirmacao, motivo ou pipeline invalido"}}}
-    }
+    "/erp/hubspot/configuracao-proposta": {"get": {"operationId": "buscarConfiguracaoComercialHubSpot", "summary": "Retorna regras comerciais e pipelines", "responses": {"200": {"description": "Configuracao comercial", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}},
+    "/erp/hubspot/health": {"get": {"operationId": "verificarConexaoHubSpot", "summary": "Testa a autenticacao real do HubSpot no Railway", "description": "Executa chamada real de leitura no HubSpot para diagnosticar autenticacao e permissao.", "responses": {"200": {"description": "Resultado do teste", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}},
+    "/erp/hubspot/empresas": {"get": {"operationId": "buscarEmpresaHubSpot", "summary": "Busca empresa no HubSpot pelo dominio", "parameters": [{"name": "domain", "in": "query", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Empresa encontrada ou busca vazia", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}},
+    "/erp/hubspot/empresas/{id}/contatos": {"get": {"operationId": "buscarContatosDaEmpresaHubSpot", "summary": "Lista contatos associados a uma empresa", "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Contatos associados", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}},
+    "/erp/hubspot/contatos": {"get": {"operationId": "buscarContatoHubSpot", "summary": "Busca contato no HubSpot por e-mail", "parameters": [{"name": "email", "in": "query", "required": true, "schema": {"type": "string", "format": "email"}}], "responses": {"200": {"description": "Contato encontrado ou busca vazia", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}},
+    "/erp/hubspot/negocios": {"get": {"operationId": "buscarNegocioPorProposta", "summary": "Verifica duplicidade de Deal pelo numero da proposta", "parameters": [{"name": "numero_proposta", "in": "query", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Resultado da busca", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}},
+    "/erp/hubspot/negocios-da-proposta": {"post": {"operationId": "criarNegocioHubSpotDaProposta", "summary": "Cria Deal no HubSpot a partir da proposta", "description": "Verifique duplicidade, empresa e contatos e obtenha confirmacao explicita antes da gravacao.", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DealInput"}}}}, "responses": {"200": {"description": "Deal criado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}, "409": {"description": "Deal duplicado"}}}},
+    "/erp/hubspot/emails/registrar-envio": {"post": {"operationId": "registrarEmailEnviadoHubSpot", "summary": "Registra no HubSpot um e-mail realmente enviado", "description": "Execute somente depois de o envio real pelo Outlook ter sido confirmado.", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmailEnviadoInput"}}}}, "responses": {"201": {"description": "E-mail registrado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}},
+    "/erp/hubspot/negocios/{id}/marcar-proposta-enviada": {"post": {"operationId": "marcarPropostaEnviadaHubSpot", "summary": "Move Deal para Proposta Enviada", "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PropostaEnviadaInput"}}}}, "responses": {"200": {"description": "Deal atualizado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}}},
+    "/erp/hubspot/negocios/{id}/marcar-ganho": {"post": {"operationId": "marcarNegocioGanhoHubSpot", "summary": "Marca Deal como Ganho com um ou varios motivos", "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GanhoInput"}}}}, "responses": {"200": {"description": "Deal marcado como Ganho", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}, "400": {"description": "Confirmacao, motivo ou pipeline invalido"}}}}
   },
   "components": {
     "schemas": {
