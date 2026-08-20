@@ -28,6 +28,7 @@ function deploymentInfoHandler(req, res) {
     deployment_environment: deploymentEnvironment(),
     railway_deployment_id: process.env.RAILWAY_DEPLOYMENT_ID || null,
     railway_service_name: process.env.RAILWAY_SERVICE_NAME || null,
+    qa_runtime_probe: 'runtime-smoke-v1',
     generated_at: new Date().toISOString()
   });
 }
