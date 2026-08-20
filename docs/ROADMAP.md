@@ -32,6 +32,7 @@ Em caso de falha: FALHOU -> DIAGNOSTICO -> CORRECAO -> QA.
 - [x] verificacao das operacoes obrigatorias do Agente de Propostas;
 - [x] workflow GitHub Actions para push/PR;
 - [x] runner de smoke test de producao;
+- [x] validacao de identidade do commit implantado antes do smoke test;
 - [ ] configurar secrets/variables do smoke test no GitHub;
 - [ ] tornar QA check obrigatorio antes de merge na branch principal;
 - [ ] ampliar testes de contrato para respostas do ERP/HubSpot.
@@ -43,15 +44,19 @@ Em caso de falha: FALHOU -> DIAGNOSTICO -> CORRECAO -> QA.
 - [x] review automatico deterministico de PR/diff;
 - [x] bloqueio do workflow quando QA falhar;
 - [x] relatorio padrao de decisao com risco e controles exigidos;
-- [ ] mecanismo para reabrir/encaminhar correcao automaticamente quando QA falhar;
-- [ ] integrar evidencias de deploy e smoke test ao parecer final do Gerente Tecnico.
+- [x] abrir incidente automaticamente quando QA/deploy smoke falhar;
+- [x] integrar evidencias de deploy e smoke test ao ciclo de validacao do Gerente Tecnico;
+- [ ] fechar/reclassificar incidentes automaticamente apos recuperacao;
+- [ ] emitir parecer final consolidado em PR/tarefa apos producao validada.
 
-## Fase 3 - Observabilidade e deploy
-- [ ] healthchecks por integracao, nao apenas processo geral;
-- [ ] smoke tests de leitura ERP por numero comercial;
-- [ ] smoke tests HubSpot sem gravacao;
+## Fase 3 - Observabilidade e deploy [EM IMPLEMENTACAO]
+- [x] endpoint de identidade do deploy (`/deployment-info`);
+- [x] smoke test de leitura ERP por numero comercial quando fixture estiver configurada;
+- [x] smoke test HubSpot sem gravacao;
+- [x] espera automatica pelo commit exato implantado antes do smoke;
+- [x] criacao automatica de incidente quando validacao de producao falhar;
 - [ ] auditoria e logs estruturados por task/correlation ID;
-- [ ] monitor de deploy Railway e classificacao de incidentes upstream;
+- [ ] classificacao automatica aprofundada de incidentes Railway/upstream;
 - [ ] rollback documentado e validado.
 
 ## Fase 4 - Estabilizacao do fluxo comercial
