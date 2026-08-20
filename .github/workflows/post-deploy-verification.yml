@@ -1,0 +1,89 @@
+name: ERP Post Deploy Verification
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: production-deploy-smoke
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  static-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+      - name: Run static QA
+        run: npm run qa
+
+  production-verification:
+    needs: static-qa
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Wait for exact deployment and run read-only smoke tests
+        env:
+          SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL || 'https://seta-erp-connector-production.up.railway.app' }}
+          SMOKE_PROPOSAL_NUMBER: ${{ vars.SMOKE_PROPOSAL_NUMBER }}
+          CONNECTOR_API_KEY: ${{ secrets.CONNECTOR_API_KEY }}
+          EXPECTED_DEPLOY_COMMIT: ${{ github.sha }}
+          DEPLOY_WAIT_SECONDS: '600'
+          DEPLOY_POLL_SECONDS: '15'
+          SMOKE_HUBSPOT: 'true'
+        run: npm run qa:smoke
+
+  technical-manager-failure:
+    if: ${{ always() && (needs.static-qa.result == 'failure' || needs.production-verification.result == 'failure') }}
+    needs: [static-qa, production-verification]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open or preserve Technical Manager incident
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STATIC_RESULT: ${{ needs.static-qa.result }}
+          SMOKE_RESULT: ${{ needs.production-verification.result }}
+        run: |
+          SHORT_SHA="${SHA:0:7}"
+          TITLE="ERP Technical Manager: verification failed ${SHORT_SHA}"
+          EXISTING=$(gh issue list --repo "$REPOSITORY" --state open --search "in:title $TITLE" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "Incident issue already exists: #$EXISTING"
+            exit 0
+          fi
+          cat > /tmp/incident.md <<EOF
+          ## Falha automatica de validacao
+
+          Commit: \`$SHA\`
+          Static QA: **$STATIC_RESULT**
+          Post-deploy smoke: **$SMOKE_RESULT**
+          Workflow: $RUN_URL
+
+          O Gerente Tecnico nao deve considerar esta entrega concluida enquanto a causa nao for classificada e a validacao nao passar.
+
+          Classificar como uma das categorias:
+          - codigo;
+          - configuracao/secrets;
+          - deploy/infraestrutura;
+          - integracao externa.
+
+          Nenhuma gravacao comercial deve ser usada para diagnostico.
+          EOF
+          gh issue create --repo "$REPOSITORY" --title "$TITLE" --body-file /tmp/incident.md
