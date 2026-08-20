@@ -99,7 +99,7 @@ if (action) {
   }
 }
 
-for (const file of ['gateway.js','deployment-diagnostics-preload.js','read-diagnostics-preload.js','edit-diagnostics-preload.js']) {
+for (const file of ['gateway.js','deployment-diagnostics-preload.js','read-diagnostics-preload.js','edit-diagnostics-preload.js','scripts/write-deployment-build.mjs']) {
   try { execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' }); }
   catch (err) { fail(`${file}: falha de sintaxe JavaScript - ${String(err.stderr || err.message).trim()}`); }
 }
