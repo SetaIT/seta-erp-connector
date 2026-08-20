@@ -12,6 +12,10 @@ function readJson(path) {
   catch (err) { fail(`${path}: JSON invalido - ${err.message}`); return null; }
 }
 
+function assert(condition, message) {
+  if (!condition) fail(message);
+}
+
 const action = readJson('openapi-actions.json');
 if (action) {
   if (!String(action.openapi || '').startsWith('3.')) fail('openapi-actions.json: versao OpenAPI deve ser 3.x');
@@ -55,9 +59,44 @@ if (action) {
   for (const op of requiredOps) if (!operationIds.has(op)) fail(`operacao obrigatoria ausente: ${op}`);
 
   const primary = action.paths?.['/erp/orcamentos/numero/{numero}']?.get;
-  if (primary?.operationId !== 'consultarOrcamentoPorNumero') fail('rota primaria por numero comercial nao esta configurada corretamente');
+  assert(primary?.operationId === 'consultarOrcamentoPorNumero', 'rota primaria por numero comercial nao esta configurada corretamente');
+  assert(primary?.parameters?.some(p => p.name === 'numero' && p.in === 'path' && p.required === true), 'consultarOrcamentoPorNumero: parametro de path numero obrigatorio ausente');
+
+  const context = action.paths?.['/erp/propostas/{numero}/contexto']?.get;
+  if (context?.description && !/depois|somente|nao use como primeira/i.test(context.description)) {
+    warn('consultarContextoCompletoProposta: descricao nao deixa claro que a rota e secundaria ao lookup por numero');
+  }
+
+  const edit = action.paths?.['/erp/orcamentos/{id}']?.put;
+  assert(edit?.operationId === 'editarOrcamento', 'PUT /erp/orcamentos/{id} nao esta exposto como editarOrcamento');
+  const editSchema = action.components?.schemas?.OrcamentoEditInput;
+  assert(editSchema?.required?.includes('confirmacao_edicao'), 'OrcamentoEditInput deve exigir confirmacao_edicao');
+  assert(editSchema?.properties?.confirmacao_edicao?.const === true, 'confirmacao_edicao deve aceitar somente true');
+
   const deletion = action.paths?.['/erp/orcamentos/{id}']?.delete;
-  if (deletion?.operationId !== 'excluirOrcamento') fail('DELETE /erp/orcamentos/{id} nao esta exposto como excluirOrcamento');
+  assert(deletion?.operationId === 'excluirOrcamento', 'DELETE /erp/orcamentos/{id} nao esta exposto como excluirOrcamento');
+  const deleteSchema = action.components?.schemas?.OrcamentoDeleteInput;
+  assert(deleteSchema?.required?.includes('confirmacao_exclusao'), 'OrcamentoDeleteInput deve exigir confirmacao_exclusao');
+  assert(deleteSchema?.required?.includes('codigo_confirmacao'), 'OrcamentoDeleteInput deve exigir codigo_confirmacao');
+  assert(deleteSchema?.properties?.confirmacao_exclusao?.const === true, 'confirmacao_exclusao deve aceitar somente true');
+
+  const emailSchema = action.components?.schemas?.EmailEnviadoInput;
+  if (emailSchema) {
+    assert(emailSchema?.required?.includes('envio_confirmado'), 'EmailEnviadoInput deve exigir envio_confirmado');
+    assert(emailSchema?.properties?.envio_confirmado?.const === true, 'envio_confirmado deve aceitar somente true');
+  }
+
+  const sentSchema = action.components?.schemas?.PropostaEnviadaInput;
+  if (sentSchema) {
+    assert(sentSchema?.required?.includes('envio_confirmado'), 'PropostaEnviadaInput deve exigir envio_confirmado');
+    assert(sentSchema?.properties?.envio_confirmado?.const === true, 'PropostaEnviadaInput.envio_confirmado deve aceitar somente true');
+  }
+
+  const wonSchema = action.components?.schemas?.GanhoInput;
+  if (wonSchema) {
+    assert(wonSchema?.required?.includes('confirmacao_ganho'), 'GanhoInput deve exigir confirmacao_ganho');
+    assert(wonSchema?.properties?.confirmacao_ganho?.const === true, 'confirmacao_ganho deve aceitar somente true');
+  }
 }
 
 for (const file of ['gateway.js','read-diagnostics-preload.js','edit-diagnostics-preload.js']) {
@@ -73,7 +112,7 @@ if (failures.length) {
   for (const message of failures) console.error(`- ${message}`);
   process.exit(1);
 }
-console.log(`QA APROVADO: ${operationIdsCount(action)} operacoes OpenAPI verificadas; sintaxe e JSON validados.`);
+console.log(`QA APROVADO: ${operationIdsCount(action)} operacoes OpenAPI verificadas; contratos, sintaxe e JSON validados.`);
 
 function operationIdsCount(spec) {
   let count = 0;
