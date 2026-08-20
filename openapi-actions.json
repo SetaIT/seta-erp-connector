@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agente de Propostas Seta Telecom",
-    "version": "2.0.13",
+    "version": "2.0.14",
     "description": "Action unica do Agente de Propostas para ERP Betel, HubSpot e registro do fluxo comercial. Para propostas existentes, a entrada primaria e sempre o numero comercial via consultarOrcamentoPorNumero."
   },
   "servers": [
@@ -26,7 +26,7 @@
       "get": {
         "operationId": "consultarContextoCompletoProposta",
         "summary": "Enriquece uma proposta ja localizada com contexto comercial ERP e HubSpot",
-        "description": "NAO use como primeira chamada para consultar, editar ou excluir proposta existente. Primeiro use consultarOrcamentoPorNumero para validar a proposta no ERP e resolver o ID interno. Use esta operacao somente depois, quando houver necessidade de HubSpot, Deal, empresa, contatos, emails ou proxima acao comercial. Falha aqui nao invalida dados ERP ja confirmados.",
+        "description": "Use somente apos consultarOrcamentoPorNumero. Enriquece a proposta com contexto HubSpot, Deal, empresa, contatos e emails. Nao use como primeira chamada para consultar, editar ou excluir. Falha aqui nao invalida dados ERP ja confirmados.",
         "parameters": [{"name": "numero", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[0-9]+$"}}],
         "responses": {
           "200": {"description": "Contexto comercial completo ou parcial", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
@@ -110,7 +110,7 @@
       "get": {
         "operationId": "consultarOrcamentoPorNumero",
         "summary": "PRIMEIRA operacao para qualquer proposta existente informada pelo numero comercial",
-        "description": "OPERACAO PRIMARIA E OBRIGATORIA quando o usuario disser consultar, editar ou excluir uma proposta pelo numero comercial. Chame esta operacao antes de consultarContextoCompletoProposta, consultarOrcamento, editarOrcamento ou excluirOrcamento. Nunca solicite o ID interno ao usuario. O backend busca a proposta no ERP, resolve o ID interno, carrega os detalhes e valida que o codigo retornado corresponde ao numero solicitado.",
+        "description": "Operacao primaria para consultar, editar ou excluir por numero comercial. Use antes das demais operacoes de proposta. Nunca solicite ID interno ao usuario; o backend resolve o ID, carrega os detalhes e valida o codigo retornado.",
         "parameters": [{"name": "numero", "in": "path", "required": true, "description": "Numero comercial informado pelo usuario, por exemplo 4623.", "schema": {"type": "string", "pattern": "^[0-9]+$"}}],
         "responses": {
           "200": {"description": "Proposta localizada no ERP ou diagnostico estruturado sem gravacao", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}
