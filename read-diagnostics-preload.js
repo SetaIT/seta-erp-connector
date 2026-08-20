@@ -22,6 +22,28 @@ function extractProposalData(payload) {
   return payload && typeof payload === 'object' ? payload : null;
 }
 
+function collectionFromPayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return [];
+  for (const key of ['data', 'dados', 'results', 'orcamentos', 'items', 'registros']) {
+    if (Array.isArray(payload[key])) return payload[key];
+  }
+  return [];
+}
+
+function findProposalByNumber(payload, numero) {
+  const target = String(numero);
+  const list = collectionFromPayload(payload);
+  const match = list.find(item => String(item?.codigo ?? item?.numero ?? item?.numero_proposta ?? item?.codigo_orcamento ?? '') === target);
+  if (match) return match;
+  const single = extractProposalData(payload);
+  if (single && typeof single === 'object') {
+    const value = single.codigo ?? single.numero ?? single.numero_proposta ?? single.codigo_orcamento;
+    if (String(value ?? '') === target) return single;
+  }
+  return null;
+}
+
 async function directBetelGet(path) {
   const response = await fetch(`${BETEL_BASE_URL}${path}`, {
     method: 'GET',
@@ -71,12 +93,69 @@ async function directListHandler(req, res) {
     return res.status(200).json({ status: 'error', stage: 'betel_list', read_attempted: true, read_succeeded: false, betel_http_status: result.status, betel_details: compactDetails(result.data) });
   }
 
-  // Preserve the Betel collection payload so existing buscarOrcamentos callers keep
-  // the same contract, but mark that this read bypassed the internal legacy proxy.
   if (result.data && typeof result.data === 'object' && !Array.isArray(result.data)) {
     return res.status(200).json({ ...result.data, connector_read_mode: 'direct_betel', read_succeeded: true });
   }
   return res.status(200).json({ data: result.data, connector_read_mode: 'direct_betel', read_succeeded: true });
+}
+
+async function directReadByNumberHandler(req, res) {
+  const numero = String(req.params.numero || '').trim();
+  if (!isAuthorized(req)) return res.status(200).json({ status: 'error', stage: 'authentication', read_attempted: false, read_succeeded: false, message: 'unauthorized' });
+  if (!isConfigured()) return res.status(200).json({ status: 'error', stage: 'configuration', read_attempted: false, read_succeeded: false, message: 'Credenciais Betel nao configuradas no Railway.' });
+  if (!/^\d+$/.test(numero)) return res.status(200).json({ status: 'error', stage: 'validation', read_attempted: false, read_succeeded: false, message: 'numero da proposta deve ser numerico' });
+
+  let listResponse;
+  try {
+    listResponse = await directBetelGet(`/orcamentos?codigo=${encodeURIComponent(numero)}`);
+  } catch (err) {
+    return res.status(200).json({ status: 'error', stage: 'resolve_number_transport', read_attempted: true, read_succeeded: false, numero, message: err.message });
+  }
+  if (!listResponse.ok) {
+    return res.status(200).json({ status: 'error', stage: 'resolve_number', read_attempted: true, read_succeeded: false, numero, betel_http_status: listResponse.status, betel_details: compactDetails(listResponse.data) });
+  }
+
+  const summary = findProposalByNumber(listResponse.data, numero);
+  const internalId = String(summary?.id ?? summary?.orcamento_id ?? summary?.id_orcamento ?? '').trim();
+  if (!summary || !internalId) {
+    return res.status(200).json({ status: 'not_found', stage: 'resolve_number', read_attempted: true, read_succeeded: false, numero, message: 'Proposta nao encontrada pelo numero comercial ou resposta sem ID interno.' });
+  }
+
+  let detailResponse;
+  try {
+    detailResponse = await directBetelGet(`/orcamentos/${encodeURIComponent(internalId)}`);
+  } catch (err) {
+    return res.status(200).json({ status: 'error', stage: 'load_resolved_proposal_transport', read_attempted: true, read_succeeded: false, numero, resolved_id: internalId, message: err.message });
+  }
+  if (!detailResponse.ok) {
+    return res.status(200).json({ status: 'error', stage: 'load_resolved_proposal', read_attempted: true, read_succeeded: false, numero, resolved_id: internalId, betel_http_status: detailResponse.status, betel_details: compactDetails(detailResponse.data) });
+  }
+
+  const proposal = extractProposalData(detailResponse.data);
+  if (String(proposal?.codigo ?? '') !== numero) {
+    return res.status(200).json({ status: 'error', stage: 'identity_mismatch', read_attempted: true, read_succeeded: false, numero, resolved_id: internalId, codigo_retornado: proposal?.codigo ?? null, message: 'O ID resolvido nao corresponde ao numero comercial solicitado.' });
+  }
+
+  return res.status(200).json({
+    status: 'success',
+    stage: 'completed',
+    read_attempted: true,
+    read_succeeded: true,
+    numero,
+    id: internalId,
+    codigo: proposal?.codigo ?? numero,
+    nome_cliente: proposal?.nome_cliente ?? null,
+    cliente_id: proposal?.cliente_id ?? null,
+    valor_total: proposal?.valor_total ?? null,
+    data: proposal?.data ?? null,
+    validade: proposal?.validade ?? null,
+    previsao_entrega: proposal?.previsao_entrega ?? null,
+    prazo_entrega: proposal?.prazo_entrega ?? null,
+    situacao_id: proposal?.situacao_id ?? null,
+    nome_situacao: proposal?.nome_situacao ?? null,
+    hash: proposal?.hash ?? null,
+    connector_read_mode: 'direct_betel_number_resolution'
+  });
 }
 
 async function directReadHandler(req, res) {
@@ -121,9 +200,10 @@ express.application.use = function patchedUse(...args) {
   const proxyFn = args.length === 1 && typeof args[0] === 'function' ? args[0] : null;
   if (!readRouteInstalled && proxyFn?.name === 'proxyToLegacy') {
     readRouteInstalled = true;
+    originalGet.call(this, '/erp/orcamentos/numero/:numero', directReadByNumberHandler);
     originalGet.call(this, '/erp/orcamentos', directListHandler);
     originalGet.call(this, '/erp/orcamentos/:id', directReadHandler);
-    console.log('Installed direct Betel proposal list/read routes before legacy proxy');
+    console.log('Installed direct Betel proposal number/list/read routes before legacy proxy');
   }
   return originalUse.apply(this, args);
 };
