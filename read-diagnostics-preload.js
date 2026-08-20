@@ -38,51 +38,66 @@ async function directBetelGet(path) {
   return { ok: response.ok, status: response.status, data };
 }
 
+function isAuthorized(req) {
+  return Boolean(CONNECTOR_API_KEY && req.headers.authorization === `Bearer ${CONNECTOR_API_KEY}`);
+}
+
+function isConfigured() {
+  return Boolean(BETEL_ACCESS_TOKEN && BETEL_SECRET_ACCESS_TOKEN);
+}
+
+async function directListHandler(req, res) {
+  if (!isAuthorized(req)) {
+    return res.status(200).json({ status: 'error', stage: 'authentication', read_attempted: false, read_succeeded: false, message: 'unauthorized' });
+  }
+  if (!isConfigured()) {
+    return res.status(200).json({ status: 'error', stage: 'configuration', read_attempted: false, read_succeeded: false, message: 'Credenciais Betel nao configuradas no Railway.' });
+  }
+
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(req.query || {})) {
+    if (value !== undefined && value !== null && String(value).trim() !== '') params.append(key, String(value));
+  }
+  const qs = params.toString();
+
+  let result;
+  try {
+    result = await directBetelGet(`/orcamentos${qs ? `?${qs}` : ''}`);
+  } catch (err) {
+    return res.status(200).json({ status: 'error', stage: 'betel_list_transport', read_attempted: true, read_succeeded: false, message: err.message });
+  }
+
+  if (!result.ok) {
+    return res.status(200).json({ status: 'error', stage: 'betel_list', read_attempted: true, read_succeeded: false, betel_http_status: result.status, betel_details: compactDetails(result.data) });
+  }
+
+  // Preserve the Betel collection payload so existing buscarOrcamentos callers keep
+  // the same contract, but mark that this read bypassed the internal legacy proxy.
+  if (result.data && typeof result.data === 'object' && !Array.isArray(result.data)) {
+    return res.status(200).json({ ...result.data, connector_read_mode: 'direct_betel', read_succeeded: true });
+  }
+  return res.status(200).json({ data: result.data, connector_read_mode: 'direct_betel', read_succeeded: true });
+}
+
 async function directReadHandler(req, res) {
   const id = String(req.params.id || '').trim();
 
-  if (!CONNECTOR_API_KEY || req.headers.authorization !== `Bearer ${CONNECTOR_API_KEY}`) {
-    return res.status(200).json({
-      status: 'error',
-      stage: 'authentication',
-      read_attempted: false,
-      read_succeeded: false,
-      message: 'unauthorized'
-    });
+  if (!isAuthorized(req)) {
+    return res.status(200).json({ status: 'error', stage: 'authentication', read_attempted: false, read_succeeded: false, message: 'unauthorized' });
   }
-
-  if (!BETEL_ACCESS_TOKEN || !BETEL_SECRET_ACCESS_TOKEN) {
-    return res.status(200).json({
-      status: 'error',
-      stage: 'configuration',
-      read_attempted: false,
-      read_succeeded: false,
-      message: 'Credenciais Betel nao configuradas no Railway.'
-    });
+  if (!isConfigured()) {
+    return res.status(200).json({ status: 'error', stage: 'configuration', read_attempted: false, read_succeeded: false, message: 'Credenciais Betel nao configuradas no Railway.' });
   }
 
   let result;
   try {
     result = await directBetelGet(`/orcamentos/${encodeURIComponent(id)}`);
   } catch (err) {
-    return res.status(200).json({
-      status: 'error',
-      stage: 'betel_read_transport',
-      read_attempted: true,
-      read_succeeded: false,
-      message: err.message
-    });
+    return res.status(200).json({ status: 'error', stage: 'betel_read_transport', read_attempted: true, read_succeeded: false, message: err.message });
   }
 
   if (!result.ok) {
-    return res.status(200).json({
-      status: 'error',
-      stage: 'betel_read',
-      read_attempted: true,
-      read_succeeded: false,
-      betel_http_status: result.status,
-      betel_details: compactDetails(result.data)
-    });
+    return res.status(200).json({ status: 'error', stage: 'betel_read', read_attempted: true, read_succeeded: false, betel_http_status: result.status, betel_details: compactDetails(result.data) });
   }
 
   const proposal = extractProposalData(result.data);
@@ -106,8 +121,9 @@ express.application.use = function patchedUse(...args) {
   const proxyFn = args.length === 1 && typeof args[0] === 'function' ? args[0] : null;
   if (!readRouteInstalled && proxyFn?.name === 'proxyToLegacy') {
     readRouteInstalled = true;
+    originalGet.call(this, '/erp/orcamentos', directListHandler);
     originalGet.call(this, '/erp/orcamentos/:id', directReadHandler);
-    console.log('Installed direct Betel proposal read route before legacy proxy');
+    console.log('Installed direct Betel proposal list/read routes before legacy proxy');
   }
   return originalUse.apply(this, args);
 };
