@@ -14,7 +14,39 @@ permissions:
   issues: write
 
 jobs:
+  classify-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      runtime_changed: ${{ steps.classify.outputs.runtime_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Classify deployment relevance
+        id: classify
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "runtime_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only HEAD^ HEAD)
+          echo "$CHANGED"
+
+          RUNTIME_CHANGED=false
+          while IFS= read -r FILE; do
+            case "$FILE" in
+              gateway.js|server.js|read-diagnostics-preload.js|edit-diagnostics-preload.js|deployment-diagnostics-preload.js|package.json|proposal-rules.json|billing-rules.json|openapi-actions.json)
+                RUNTIME_CHANGED=true
+                ;;
+            esac
+          done <<< "$CHANGED"
+
+          echo "runtime_changed=$RUNTIME_CHANGED" >> "$GITHUB_OUTPUT"
+
   static-qa:
+    needs: classify-changes
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
@@ -28,7 +60,8 @@ jobs:
         run: npm run qa
 
   production-verification:
-    needs: static-qa
+    if: ${{ needs.classify-changes.outputs.runtime_changed == 'true' }}
+    needs: [classify-changes, static-qa]
     runs-on: ubuntu-latest
     timeout-minutes: 14
     steps:
@@ -48,9 +81,18 @@ jobs:
           SMOKE_HUBSPOT: 'true'
         run: npm run qa:smoke
 
+  non-runtime-verification:
+    if: ${{ needs.classify-changes.outputs.runtime_changed != 'true' }}
+    needs: [classify-changes, static-qa]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record non-runtime change
+        run: |
+          echo "Mudanca sem impacto de runtime. QA estatico concluido; deploy de producao e smoke por commit nao sao exigidos."
+
   technical-manager-failure:
     if: ${{ always() && (needs.static-qa.result == 'failure' || needs.production-verification.result == 'failure') }}
-    needs: [static-qa, production-verification]
+    needs: [classify-changes, static-qa, production-verification, non-runtime-verification]
     runs-on: ubuntu-latest
     steps:
       - name: Open or preserve Technical Manager incident
