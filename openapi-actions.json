@@ -212,7 +212,7 @@
         "operationId": "registrarEmailEnviadoHubSpot",
         "summary": "Registra no HubSpot um e-mail realmente enviado",
         "description": "Execute somente depois de o envio real pelo Outlook ter sido confirmado.",
-        "requestBody": {"required": true, "content": {"application/json": {"$ref": "#/components/schemas/EmailEnviadoInput"}}},
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmailEnviadoInput"}}}},
         "responses": {"201": {"description": "E-mail registrado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}}}
       }
     },
