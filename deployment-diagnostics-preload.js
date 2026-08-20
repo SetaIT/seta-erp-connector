@@ -1,11 +1,21 @@
 import express from 'express';
+import fs from 'node:fs';
 
 const originalUse = express.application.use;
 const originalGet = express.application.get;
 let deploymentRouteInstalled = false;
 
-function deploymentCommit() {
+function readBuildMarker() {
+  try {
+    const marker = JSON.parse(fs.readFileSync(new URL('./deployment-build.json', import.meta.url), 'utf8'));
+    if (marker && typeof marker === 'object') return marker;
+  } catch {}
+  return null;
+}
+
+function deploymentCommit(marker) {
   return String(
+    marker?.commit ||
     process.env.RAILWAY_GIT_COMMIT_SHA ||
     process.env.GITHUB_SHA ||
     process.env.SOURCE_COMMIT ||
@@ -21,14 +31,17 @@ function deploymentEnvironment() {
 }
 
 function deploymentInfoHandler(req, res) {
+  const marker = readBuildMarker();
   return res.status(200).json({
     status: 'ok',
     service: 'seta-erp-connector',
-    deployment_commit: deploymentCommit(),
+    deployment_commit: deploymentCommit(marker),
+    deployment_commit_source: marker?.source || 'environment_fallback',
+    deployment_marker_generated_at: marker?.generated_at || null,
     deployment_environment: deploymentEnvironment(),
     railway_deployment_id: process.env.RAILWAY_DEPLOYMENT_ID || null,
     railway_service_name: process.env.RAILWAY_SERVICE_NAME || null,
-    qa_runtime_probe: 'runtime-smoke-v1',
+    qa_runtime_probe: 'runtime-smoke-v2-build-marker',
     generated_at: new Date().toISOString()
   });
 }
