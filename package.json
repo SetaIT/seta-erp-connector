@@ -1,6 +1,6 @@
 {
   "name": "seta-erp-connector",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "engines": {
@@ -8,7 +8,7 @@
   },
   "scripts": {
     "postinstall": "node scripts/write-deployment-build.mjs",
-    "start": "node --import ./deployment-diagnostics-preload.js --import ./action-probe-preload.js --import ./read-diagnostics-preload.js --import ./edit-diagnostics-preload.js --import ./number-write-preload.js --import ./read-resilient-preload.js gateway.js",
+    "start": "node --import ./deployment-diagnostics-preload.js --import ./action-probe-preload.js --import ./read-diagnostics-preload.js --import ./edit-diagnostics-preload.js --import ./number-write-preload.js --import ./product-write-preload.js --import ./read-resilient-preload.js gateway.js",
     "qa": "node scripts/qa.mjs",
     "qa:smoke": "node scripts/smoke.mjs",
     "qa:manager": "node scripts/technical-manager-review.mjs"
