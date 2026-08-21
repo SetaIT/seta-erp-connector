@@ -1,0 +1,41 @@
+name: Proposal Service v2 Live Betel Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      proposal_number:
+        description: 'Commercial proposal number to read from Betel'
+        required: true
+        default: '4623'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  betel-read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BETEL_ACCESS_TOKEN: ${{ secrets.BETEL_ACCESS_TOKEN }}
+      BETEL_SECRET_ACCESS_TOKEN: ${{ secrets.BETEL_SECRET_ACCESS_TOKEN }}
+      BETEL_TEST_PROPOSAL_NUMBER: ${{ inputs.proposal_number }}
+    steps:
+      - name: Checkout v2 proposal service
+        uses: actions/checkout@v4
+        with:
+          ref: v2/proposal-service
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Validate Betel test configuration
+        shell: bash
+        run: |
+          test -n "$BETEL_ACCESS_TOKEN" || { echo '::error::BETEL_ACCESS_TOKEN secret is missing'; exit 1; }
+          test -n "$BETEL_SECRET_ACCESS_TOKEN" || { echo '::error::BETEL_SECRET_ACCESS_TOKEN secret is missing'; exit 1; }
+      - name: Run unit tests
+        working-directory: proposal-service-v2
+        run: node --test test/proposals.test.js
+      - name: Read proposal from Betel
+        working-directory: proposal-service-v2
+        run: node --test test/integration/betel-read.test.js
