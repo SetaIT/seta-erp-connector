@@ -1,0 +1,57 @@
+name: Proposal Service v2 QA
+
+on:
+  push:
+    branches:
+      - v2/proposal-service
+    paths:
+      - 'proposal-service-v2/**'
+      - '.github/workflows/proposal-service-v2.yml'
+  workflow_dispatch:
+    inputs:
+      run_live_betel:
+        description: 'Run read-only Betel integration test'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: proposal-service-v2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run unit tests
+        run: node --test test/proposals.test.js
+
+  betel-read-integration:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live_betel == true }}
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: proposal-service-v2
+    env:
+      BETEL_ACCESS_TOKEN: ${{ secrets.BETEL_ACCESS_TOKEN }}
+      BETEL_SECRET_ACCESS_TOKEN: ${{ secrets.BETEL_SECRET_ACCESS_TOKEN }}
+      BETEL_TEST_PROPOSAL_NUMBER: ${{ vars.BETEL_TEST_PROPOSAL_NUMBER }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Validate Betel test configuration
+        shell: bash
+        run: |
+          test -n "$BETEL_ACCESS_TOKEN" || { echo '::error::BETEL_ACCESS_TOKEN secret is missing'; exit 1; }
+          test -n "$BETEL_SECRET_ACCESS_TOKEN" || { echo '::error::BETEL_SECRET_ACCESS_TOKEN secret is missing'; exit 1; }
+      - name: Run read-only Betel integration test
+        run: node --test test/integration/betel-read.test.js
