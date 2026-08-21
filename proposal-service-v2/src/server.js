@@ -15,23 +15,52 @@ function send(res, statusCode, body) {
   res.end(payload);
 }
 
+async function readJson(req) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  if (!chunks.length) return {};
+  const text = Buffer.concat(chunks).toString('utf8');
+  if (!text.trim()) return {};
+  return JSON.parse(text);
+}
+
+function publicResult(result) {
+  if (!result || typeof result !== 'object') return result;
+  const copy = { ...result };
+  delete copy._internal;
+  return copy;
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && req.url === '/health') {
       return send(res, 200, { status: 'ok', service: 'seta-proposal-service-v2' });
     }
 
-    const match = req.method === 'GET' ? req.url?.match(/^\/proposals\/(\d+)$/) : null;
-    if (match) {
-      const result = await proposals.getByNumber(match[1]);
-      if (result?._internal) delete result._internal;
-      return send(res, 200, result);
+    const match = req.url?.match(/^\/proposals\/(\d+)$/);
+    if (match && req.method === 'GET') {
+      return send(res, 200, publicResult(await proposals.getByNumber(match[1])));
+    }
+
+    if (match && req.method === 'PUT') {
+      const body = await readJson(req);
+      const changes = body.changes && typeof body.changes === 'object' ? body.changes : {};
+      const confirmed = body.confirmacao_edicao === true;
+      return send(res, 200, publicResult(await proposals.editByNumber(match[1], changes, { confirmed })));
+    }
+
+    if (match && req.method === 'DELETE') {
+      const body = await readJson(req);
+      return send(res, 200, publicResult(await proposals.deleteByNumber(match[1], {
+        confirmed: body.confirmacao_exclusao === true,
+        confirmationCode: body.codigo_confirmacao
+      })));
     }
 
     return send(res, 404, { status: 'error', message: 'route_not_found' });
   } catch (error) {
     console.error(error);
-    return send(res, 500, { status: 'error', stage: 'unhandled', message: error.message });
+    return send(res, 400, { status: 'error', stage: 'request', message: error.message });
   }
 });
 
