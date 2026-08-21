@@ -1,6 +1,10 @@
 name: Proposal Service v2 Live Betel Test
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/proposal-service-v2-live.yml'
   workflow_dispatch:
     inputs:
       proposal_number:
@@ -19,7 +23,7 @@ jobs:
     env:
       BETEL_ACCESS_TOKEN: ${{ secrets.BETEL_ACCESS_TOKEN }}
       BETEL_SECRET_ACCESS_TOKEN: ${{ secrets.BETEL_SECRET_ACCESS_TOKEN }}
-      BETEL_TEST_PROPOSAL_NUMBER: ${{ inputs.proposal_number }}
+      BETEL_TEST_PROPOSAL_NUMBER: ${{ github.event.inputs.proposal_number || '4623' }}
     steps:
       - name: Checkout v2 proposal service
         uses: actions/checkout@v4
@@ -39,3 +43,6 @@ jobs:
       - name: Read proposal from Betel
         working-directory: proposal-service-v2
         run: node --test test/integration/betel-read.test.js
+      - name: Print read-only proposal preview
+        working-directory: proposal-service-v2
+        run: node scripts/read-proposal.js
