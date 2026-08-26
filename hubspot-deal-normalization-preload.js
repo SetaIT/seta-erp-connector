@@ -8,6 +8,18 @@ function normalize(value) {
     .toLowerCase();
 }
 
+const enumFallbackAliases = {
+  solucao: new Map([
+    ['locacao de switch', 'Cisco'],
+    ['locacao switch', 'Cisco'],
+    ['locacao de switches', 'Cisco'],
+  ]),
+};
+
+function fallbackEnumValue(propertyName, suppliedValue) {
+  return enumFallbackAliases[propertyName]?.get(normalize(suppliedValue)) || suppliedValue;
+}
+
 async function resolveHubSpotEnumValue(url, init, propertyName, suppliedValue) {
   try {
     const parsedUrl = new URL(String(url));
@@ -16,16 +28,16 @@ async function resolveHubSpotEnumValue(url, init, propertyName, suppliedValue) {
       method: 'GET',
       headers: init?.headers,
     });
-    if (!response.ok) return suppliedValue;
+    if (!response.ok) return fallbackEnumValue(propertyName, suppliedValue);
     const definition = await response.json();
     const options = Array.isArray(definition?.options) ? definition.options : [];
     const wanted = normalize(suppliedValue);
     const match = options.find((option) =>
       normalize(option?.value) === wanted || normalize(option?.label) === wanted,
     );
-    return match?.value || suppliedValue;
+    return match?.value || fallbackEnumValue(propertyName, suppliedValue);
   } catch {
-    return suppliedValue;
+    return fallbackEnumValue(propertyName, suppliedValue);
   }
 }
 
