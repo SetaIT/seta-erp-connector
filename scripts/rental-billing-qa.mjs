@@ -5,6 +5,10 @@ import fs from 'node:fs';
 process.env.BETEL_ACCESS_TOKEN = 'mock-access';
 process.env.BETEL_SECRET_ACCESS_TOKEN = 'mock-secret';
 process.env.RENTAL_BILLING_API_KEY = 'mock-api-key';
+process.env.RENTAL_BILLING_WRITES_ENABLED = 'true';
+process.env.RENTAL_BILLING_KILL_SWITCH = 'false';
+process.env.RENTAL_BILLING_EMISSION_ENABLED = 'false';
+process.env.RENTAL_BILLING_LEDGER_PATH = `/tmp/seta-rental-billing-regression-${process.pid}.json`;
 
 const calls = [];
 globalThis.fetch = async (url, options = {}) => {
@@ -35,7 +39,8 @@ function request(path, body, authorized = true) {
 }
 
 const payload = {
-  idempotency_key: 'cliente-2026-08',
+  contrato_id: 'contract-10',
+  idempotency_key: 'contract-10:2026-08',
   recebimento: { descricao: 'Locacao agosto', data_vencimento: '2026-08-30', plano_contas_id: 1, forma_pagamento_id: 2, conta_bancaria_id: 3, valor: 1500, data_competencia: '2026-08-01', cliente_id: 10 },
   nfse: { destinatario_id_cliente: 10, valor_servico: 1500, codigo_atividade: '1.05', codigo_natureza_operacao: '1', iss_retido: 0, cidade_incidencia_issqn: 'Sao Paulo', estado_incidencia_issqn: 'SP', descricao: 'Locacao agosto' }
 };
@@ -72,4 +77,6 @@ try {
   console.log('QA APROVADO: servico isolado, preflight read-only, gravacao confirmada e emissao protegida.');
 } finally {
   server.close();
+  fs.rmSync(process.env.RENTAL_BILLING_LEDGER_PATH, { force: true });
+  fs.rmSync(`${process.env.RENTAL_BILLING_LEDGER_PATH}.lock`, { force: true });
 }
