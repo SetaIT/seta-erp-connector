@@ -100,6 +100,16 @@ Antes de cada nova versao:
 5. abrir PR sem merge automatico;
 6. implantar apenas apos aprovacao explicita.
 
+## Gates obrigatorios de CI
+
+Todo Pull Request desta funcionalidade deve permanecer sem merge ate o GitHub Actions aprovar, no SHA atual do PR:
+
+1. QA geral do conector (`npm run qa`);
+2. regressao do servico isolado (`npm run qa:rental-billing`);
+3. controles de seguranca (`npm run qa:rental-billing:safety`).
+
+O CI nao utiliza credenciais do ERP e nao executa smoke de producao em eventos de Pull Request.
+
 Checkpoint desta fase: `backup/pre-rental-billing-v2-hardening-20260825`, apontando para `8c71e5389541424c0a761d260273c6200fdd2751`.
 
 ## Kill switch e rollback
