@@ -29,9 +29,9 @@ jobs:
       - name: Run static QA
         run: npm run qa
       - name: Run isolated rental billing regression QA
-        run: node scripts/rental-billing-qa.mjs
+        run: npm run qa:rental-billing
       - name: Run isolated rental billing safety QA
-        run: node scripts/rental-billing-safety-qa.mjs
+        run: npm run qa:rental-billing:safety
 
   production-smoke:
     if: ${{ github.event_name == 'workflow_dispatch' }}
