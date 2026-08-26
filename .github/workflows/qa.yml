@@ -4,7 +4,16 @@ on:
   push:
     branches: [main]
   pull_request:
-  workflow_dispatch:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: erp-qa-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   static-qa:
@@ -19,6 +28,10 @@ jobs:
         run: npm install --ignore-scripts
       - name: Run static QA
         run: npm run qa
+      - name: Run isolated rental billing regression QA
+        run: npm run qa:rental-billing
+      - name: Run isolated rental billing safety QA
+        run: npm run qa:rental-billing:safety
 
   production-smoke:
     if: ${{ github.event_name == 'workflow_dispatch' }}
