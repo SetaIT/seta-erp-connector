@@ -1,8 +1,6 @@
 name: ERP Post Deploy Verification
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
