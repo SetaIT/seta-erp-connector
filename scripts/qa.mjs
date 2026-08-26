@@ -105,7 +105,7 @@ if (action) {
   }
 }
 
-for (const file of ['gateway.js','deployment-diagnostics-preload.js','read-diagnostics-preload.js','read-resilient-preload.js','edit-diagnostics-preload.js','number-write-preload.js','scripts/write-deployment-build.mjs']) {
+for (const file of ['gateway.js','server.js','commercial-write-reconciliation.js','deployment-diagnostics-preload.js','read-diagnostics-preload.js','read-resilient-preload.js','edit-diagnostics-preload.js','number-write-preload.js','scripts/write-deployment-build.mjs']) {
   try { execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' }); }
   catch (err) { fail(`${file}: falha de sintaxe JavaScript - ${String(err.stderr || err.message).trim()}`); }
 }

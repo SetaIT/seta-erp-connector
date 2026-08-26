@@ -19,6 +19,8 @@ jobs:
         run: npm install --ignore-scripts
       - name: Run static QA
         run: npm run qa
+      - name: Run simulated write reconciliation tests
+        run: npm test
 
   production-smoke:
     if: ${{ github.event_name == 'workflow_dispatch' }}

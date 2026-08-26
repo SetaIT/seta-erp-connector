@@ -1,5 +1,7 @@
 # Seta ERP Connector
 
+Resilient write contract, compatibility, and rollback: [docs/RESILIENT_COMMERCIAL_WRITES.md](docs/RESILIENT_COMMERCIAL_WRITES.md).
+
 Conector minimo para permitir que um GPT Action acesse o ERP Betel sem expor os tokens do ERP no schema OpenAPI.
 
 ## Variaveis de ambiente

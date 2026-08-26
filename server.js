@@ -1,8 +1,22 @@
 import express from 'express';
 import fs from 'fs';
+import {
+  EFFECTIVE_STATUS,
+  ERROR_TAXONOMY,
+  correlationIdFrom,
+  reconcileWrite,
+  resolveEnumOption,
+  sanitizePayload,
+  structuredLog,
+} from './commercial-write-reconciliation.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+app.use((req, res, next) => {
+  req.correlationId = correlationIdFrom(req.headers['x-correlation-id']);
+  res.setHeader('x-correlation-id', req.correlationId);
+  next();
+});
 
 const PORT = process.env.PORT || 3000;
 const BETEL_BASE_URL = process.env.BETEL_BASE_URL || 'https://api.beteltecnologia.com/api';
@@ -41,7 +55,7 @@ function cleanQuery(query) {
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-async function betelRequest(path, { method = 'GET', query, body } = {}) {
+async function betelRequest(path, { method = 'GET', query, body, correlationId, operation, observe = false } = {}) {
   const qs = cleanQuery(query);
   const url = `${BETEL_BASE_URL}${path}${qs ? `?${qs}` : ''}`;
   const maxAttempts = method === 'GET' ? 2 : 1;
@@ -55,6 +69,7 @@ async function betelRequest(path, { method = 'GET', query, body } = {}) {
           'access-token': BETEL_ACCESS_TOKEN,
           'secret-access-token': BETEL_SECRET_ACCESS_TOKEN,
           Accept: 'application/json',
+          ...(correlationId ? { 'x-correlation-id': correlationId } : {}),
           ...(body ? { 'Content-Type': 'application/json; charset=utf-8' } : {})
         },
         body: body ? JSON.stringify(body) : undefined
@@ -62,12 +77,21 @@ async function betelRequest(path, { method = 'GET', query, body } = {}) {
       const text = await response.text();
       let data;
       try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
-      if (response.ok) return data;
+      const requestId = response.headers.get('x-request-id')
+        || response.headers.get('x-correlation-id')
+        || response.headers.get('cf-ray');
+      if (response.ok) return observe ? { http_status: response.status, data, request_id: requestId } : data;
 
       const err = new Error(`Betel API error ${response.status}`);
       err.status = response.status;
       err.data = data;
       err.source = 'betel';
+      err.endpoint = path;
+      err.operation = operation || `${method.toLowerCase()}_betel`;
+      err.correlation_id = correlationId;
+      err.request_id = requestId;
+      err.payload = sanitizePayload(body);
+      err.timestamp = new Date().toISOString();
       lastError = err;
       if (method === 'GET' && response.status >= 500 && attempt < maxAttempts) {
         await sleep(400);
@@ -75,6 +99,11 @@ async function betelRequest(path, { method = 'GET', query, body } = {}) {
       }
       throw err;
     } catch (err) {
+      err.endpoint ??= path;
+      err.operation ??= operation || `${method.toLowerCase()}_betel`;
+      err.correlation_id ??= correlationId;
+      err.payload ??= sanitizePayload(body);
+      err.timestamp ??= new Date().toISOString();
       lastError = err;
       if (method === 'GET' && !err.status && attempt < maxAttempts) {
         await sleep(400);
@@ -86,7 +115,7 @@ async function betelRequest(path, { method = 'GET', query, body } = {}) {
   throw lastError;
 }
 
-async function hubspotRequest(path, { method = 'GET', body } = {}) {
+async function hubspotRequest(path, { method = 'GET', body, correlationId, operation, observe = false } = {}) {
   if (!HUBSPOT_ACCESS_TOKEN) {
     const err = new Error('HUBSPOT_ACCESS_TOKEN nao configurado');
     err.status = 503;
@@ -100,6 +129,7 @@ async function hubspotRequest(path, { method = 'GET', body } = {}) {
     headers: {
       Authorization: `Bearer ${HUBSPOT_ACCESS_TOKEN}`,
       Accept: 'application/json',
+      ...(correlationId ? { 'x-correlation-id': correlationId } : {}),
       ...(body ? { 'Content-Type': 'application/json' } : {})
     },
     body: body ? JSON.stringify(body) : undefined
@@ -108,12 +138,21 @@ async function hubspotRequest(path, { method = 'GET', body } = {}) {
   const text = await response.text();
   let data;
   try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
-  if (response.ok) return data;
+  const requestId = response.headers.get('x-request-id')
+    || response.headers.get('x-correlation-id')
+    || response.headers.get('cf-ray');
+  if (response.ok) return observe ? { http_status: response.status, data, request_id: requestId } : data;
 
   const err = new Error(`HubSpot API error ${response.status}`);
   err.status = response.status;
   err.data = data;
   err.source = 'hubspot';
+  err.endpoint = path;
+  err.operation = operation || `${method.toLowerCase()}_hubspot`;
+  err.correlation_id = correlationId;
+  err.request_id = requestId;
+  err.payload = sanitizePayload(body);
+  err.timestamp = new Date().toISOString();
   throw err;
 }
 
@@ -124,7 +163,14 @@ function handleError(err, res) {
       error: `${err.source || 'request'}_error`,
       status: err.status,
       message: err.message,
-      details: err.data
+      details: sanitizePayload(err.data),
+      error_taxonomy: err.taxonomy || (err.source === 'request' ? ERROR_TAXONOMY.VALIDATION_ERROR : null),
+      endpoint: err.endpoint || null,
+      operation: err.operation || null,
+      request_correlation_id: err.correlation_id || null,
+      downstream_request_id: err.request_id || null,
+      sanitized_payload: sanitizePayload(err.payload || null),
+      timestamp: err.timestamp || new Date().toISOString()
     });
   }
   return res.status(500).json({ error: 'connector_error', message: err.message });
@@ -230,6 +276,118 @@ function nextWednesdayOnOrAfter(date) { return addDaysUtc(date, (3 - date.getUTC
 function extractProposalData(result) {
   if (result && typeof result === 'object' && result.data && typeof result.data === 'object') return result.data;
   return result && typeof result === 'object' ? result : null;
+}
+
+function collectionFromPayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return [];
+  for (const key of ['data', 'results', 'items', 'orcamentos', 'registros']) {
+    if (Array.isArray(payload[key])) return payload[key];
+  }
+  return [];
+}
+
+function findProposalByCommercialNumber(payload, numero) {
+  const target = String(numero);
+  const candidates = collectionFromPayload(payload);
+  const match = candidates.find((item) =>
+    String(item?.codigo ?? item?.numero ?? item?.numero_proposta ?? item?.codigo_orcamento ?? '') === target,
+  );
+  if (match) return match;
+  const single = extractProposalData(payload);
+  if (single && !Array.isArray(single)) {
+    const candidate = single.codigo ?? single.numero ?? single.numero_proposta ?? single.codigo_orcamento;
+    if (String(candidate ?? '') === target) return single;
+  }
+  return null;
+}
+
+function normalizeComparable(value) {
+  if (value === undefined || value === null) return '';
+  const numeric = Number(String(value).replace(',', '.'));
+  return Number.isFinite(numeric) ? String(numeric) : String(value).trim().toLowerCase();
+}
+
+function proposalEquivalence(actual, expected) {
+  const mismatches = [];
+  const compare = (field, actualValue, expectedValue) => {
+    if (actualValue === undefined || actualValue === null || expectedValue === undefined || expectedValue === null) return;
+    if (normalizeComparable(actualValue) !== normalizeComparable(expectedValue)) {
+      mismatches.push({ field, expected: expectedValue, actual: actualValue });
+    }
+  };
+  compare('codigo', actual?.codigo ?? actual?.numero, expected?.codigo);
+  compare('cliente_id', actual?.cliente_id, expected?.cliente_id);
+  compare('tipo', actual?.tipo, expected?.tipo);
+
+  const actualProducts = Array.isArray(actual?.produtos) ? actual.produtos : [];
+  const expectedProducts = Array.isArray(expected?.produtos) ? expected.produtos : [];
+  if (actualProducts.length && expectedProducts.length) {
+    if (actualProducts.length !== expectedProducts.length) {
+      mismatches.push({ field: 'produtos.length', expected: expectedProducts.length, actual: actualProducts.length });
+    } else {
+      expectedProducts.forEach((entry, index) => {
+        const expectedProduct = entry?.produto || entry;
+        const actualProduct = actualProducts[index]?.produto || actualProducts[index] || {};
+        compare(`produtos[${index}].id`, actualProduct.id ?? actualProduct.produto_id, expectedProduct.id);
+        compare(`produtos[${index}].variacao_id`, actualProduct.variacao_id, expectedProduct.variacao_id);
+        compare(`produtos[${index}].quantidade`, actualProduct.quantidade, expectedProduct.quantidade);
+        compare(`produtos[${index}].valor_venda`, actualProduct.valor_venda, expectedProduct.valor_venda);
+      });
+    }
+  }
+  return { equivalent: mismatches.length === 0, mismatches };
+}
+
+async function verifyProposalWrite(numero, expected, correlationId) {
+  try {
+    const search = await betelRequest('/orcamentos', {
+      query: { codigo: numero },
+      correlationId,
+      operation: 'verify_proposal_by_commercial_number',
+    });
+    const summary = findProposalByCommercialNumber(search, numero);
+    if (!summary) return { outcome: 'absent', details: { numero, search: sanitizePayload(search) } };
+
+    const internalId = summary.id ?? summary.orcamento_id ?? summary.id_orcamento;
+    let resource = summary;
+    if (internalId) {
+      try {
+        const detail = await betelRequest(`/orcamentos/${encodeURIComponent(internalId)}`, {
+          correlationId,
+          operation: 'verify_proposal_detail',
+        });
+        resource = extractProposalData(detail) || summary;
+      } catch (error) {
+        return {
+          outcome: 'inconclusive',
+          details: {
+            numero,
+            found_summary: sanitizePayload(summary),
+            detail_error: error instanceof Error ? error.message : 'proposal_detail_failed',
+          },
+        };
+      }
+    }
+
+    const comparison = proposalEquivalence(resource, expected);
+    return {
+      outcome: 'found',
+      equivalent: comparison.equivalent,
+      resource,
+      details: { numero, mismatches: comparison.mismatches },
+    };
+  } catch (error) {
+    return {
+      outcome: 'inconclusive',
+      details: {
+        numero,
+        message: error instanceof Error ? error.message : 'proposal_verification_failed',
+        http_status: error?.status ?? null,
+        downstream_response: sanitizePayload(error?.data ?? null),
+      },
+    };
+  }
 }
 
 function buildPublicProposalLink(hash) {
@@ -387,39 +545,61 @@ function buildProposalIntroduction(body) {
   };
 }
 
-async function hubspotSearch(objectType, propertyName, value, properties = []) {
+async function hubspotSearch(objectType, propertyName, value, properties = [], context = {}) {
   return hubspotRequest(`/crm/v3/objects/${objectType}/search`, {
     method: 'POST',
     body: {
       filterGroups: [{ filters: [{ propertyName, operator: 'EQ', value: String(value) }] }],
       properties,
       limit: 10
-    }
+    },
+    ...context,
   });
 }
-async function hubspotCreate(objectType, properties) {
-  return hubspotRequest(`/crm/v3/objects/${objectType}`, { method: 'POST', body: { properties } });
+async function hubspotCreate(objectType, properties, context = {}) {
+  return hubspotRequest(`/crm/v3/objects/${objectType}`, { method: 'POST', body: { properties }, ...context });
 }
-async function hubspotUpdate(objectType, objectId, properties) {
-  return hubspotRequest(`/crm/v3/objects/${objectType}/${encodeURIComponent(objectId)}`, { method: 'PATCH', body: { properties } });
+async function hubspotUpdate(objectType, objectId, properties, context = {}) {
+  return hubspotRequest(`/crm/v3/objects/${objectType}/${encodeURIComponent(objectId)}`, { method: 'PATCH', body: { properties }, ...context });
 }
-async function hubspotAssociate(fromType, fromId, toType, toId) {
-  return hubspotRequest(`/crm/v4/objects/${fromType}/${encodeURIComponent(fromId)}/associations/default/${toType}/${encodeURIComponent(toId)}`, { method: 'PUT' });
+async function hubspotAssociate(fromType, fromId, toType, toId, context = {}) {
+  return hubspotRequest(`/crm/v4/objects/${fromType}/${encodeURIComponent(fromId)}/associations/default/${toType}/${encodeURIComponent(toId)}`, { method: 'PUT', ...context });
 }
-async function hubspotGet(objectType, objectId, properties = []) {
+async function hubspotGet(objectType, objectId, properties = [], context = {}) {
   const qs = properties.length ? `?properties=${encodeURIComponent(properties.join(','))}` : '';
-  return hubspotRequest(`/crm/v3/objects/${objectType}/${encodeURIComponent(objectId)}${qs}`);
+  return hubspotRequest(`/crm/v3/objects/${objectType}/${encodeURIComponent(objectId)}${qs}`, context);
 }
 
-async function findOrCreateCompany({ empresa, domain }) {
-  const search = await hubspotSearch('companies', 'domain', domain, ['name', 'domain', 'hubspot_owner_id']);
+async function findOrCreateCompany({ empresa, domain }, correlationId) {
+  const context = { correlationId, operation: 'ensure_hubspot_company' };
+  const search = await hubspotSearch('companies', 'domain', domain, ['name', 'domain', 'hubspot_owner_id'], context);
   if (search.total > 0) return { record: search.results[0], created: false };
-  return { record: await hubspotCreate('companies', { name: empresa, domain }), created: true };
+  try {
+    const record = await hubspotCreate('companies', { name: empresa, domain }, context);
+    const verification = await hubspotSearch('companies', 'domain', domain, ['name', 'domain'], context);
+    return { record, created: true, verification: verification.total > 0 ? 'found' : 'eventual_consistency' };
+  } catch (error) {
+    try {
+      const verification = await hubspotSearch('companies', 'domain', domain, ['name', 'domain'], context);
+      if (verification.total > 0) {
+        return { record: verification.results[0], created: true, recovered_after_error: true, verification: 'found' };
+      }
+    } catch (verificationError) {
+      error.verification_error = {
+        message: verificationError instanceof Error ? verificationError.message : 'company_verification_failed',
+        status: verificationError?.status ?? null,
+        data: sanitizePayload(verificationError?.data ?? null),
+      };
+    }
+    error.taxonomy = ERROR_TAXONOMY.WRITE_UNCERTAIN;
+    throw error;
+  }
 }
 
-async function findOrCreateContact({ email, firstname, lastname, companyId }) {
+async function findOrCreateContact({ email, firstname, lastname, companyId }, correlationId) {
   if (!email) return { record: null, created: false };
-  const search = await hubspotSearch('contacts', 'email', email, ['email', 'firstname', 'lastname']);
+  const context = { correlationId, operation: 'ensure_hubspot_contact' };
+  const search = await hubspotSearch('contacts', 'email', email, ['email', 'firstname', 'lastname'], context);
   let record;
   let created = false;
   if (search.total > 0) record = search.results[0];
@@ -427,10 +607,32 @@ async function findOrCreateContact({ email, firstname, lastname, companyId }) {
     const properties = { email };
     if (firstname) properties.firstname = firstname;
     if (lastname) properties.lastname = lastname;
-    record = await hubspotCreate('contacts', properties);
-    created = true;
+    try {
+      record = await hubspotCreate('contacts', properties, context);
+      created = true;
+      const verification = await hubspotSearch('contacts', 'email', email, ['email', 'firstname', 'lastname'], context);
+      if (verification.total > 0) record = verification.results[0];
+    } catch (error) {
+      try {
+        const verification = await hubspotSearch('contacts', 'email', email, ['email', 'firstname', 'lastname'], context);
+        if (verification.total > 0) {
+          record = verification.results[0];
+          created = true;
+          if (companyId && record?.id) await hubspotAssociate('contact', record.id, 'company', companyId, context);
+          return { record, created, recovered_after_error: true };
+        }
+      } catch (verificationError) {
+        error.verification_error = {
+          message: verificationError instanceof Error ? verificationError.message : 'contact_verification_failed',
+          status: verificationError?.status ?? null,
+          data: sanitizePayload(verificationError?.data ?? null),
+        };
+      }
+      error.taxonomy = ERROR_TAXONOMY.WRITE_UNCERTAIN;
+      throw error;
+    }
   }
-  if (companyId && record?.id) await hubspotAssociate('contact', record.id, 'company', companyId);
+  if (companyId && record?.id) await hubspotAssociate('contact', record.id, 'company', companyId, context);
   return { record, created };
 }
 
@@ -446,10 +648,10 @@ function normalizeContacts(body) {
   return [];
 }
 
-async function findOrCreateContacts(contacts, companyId) {
+async function findOrCreateContacts(contacts, companyId, correlationId) {
   const results = [];
   for (const contact of contacts) {
-    const found = await findOrCreateContact({ ...contact, companyId });
+    const found = await findOrCreateContact({ ...contact, companyId }, correlationId);
     if (found.record) results.push({ id: found.record.id, created: found.created, email: contact.email, firstname: found.record.properties?.firstname || contact.firstname || '', lastname: found.record.properties?.lastname || contact.lastname || '' });
   }
   return results;
@@ -464,6 +666,91 @@ function calculateDealAmount(body, typeKey) {
   }
   const amount = parseMoney(body.valor_negocio, 'valor_negocio');
   return { amount: Number(amount.toFixed(2)), monthly: null, months: body.meses ? Number(body.meses) : null, rule: 'explicit_value' };
+}
+
+const HUBSPOT_ENUM_ALIASES = {
+  solucao: {
+    'locacao de switch': 'Cisco',
+    'locacao switch': 'Cisco',
+    'locacao de switches': 'Cisco',
+  },
+};
+
+async function resolveHubSpotDealConfig(typeRule, suppliedSolution, correlationId) {
+  const context = { correlationId, operation: 'validate_hubspot_deal_configuration' };
+  const [solutionDefinition, pipeline] = await Promise.all([
+    hubspotRequest('/crm/v3/properties/deals/solucao', context),
+    hubspotRequest(`/crm/v3/pipelines/deals/${encodeURIComponent(typeRule.hubspot_pipeline)}`, context),
+  ]);
+  const solution = resolveEnumOption(
+    'solucao',
+    suppliedSolution,
+    Array.isArray(solutionDefinition?.options) ? solutionDefinition.options : [],
+    HUBSPOT_ENUM_ALIASES,
+  );
+  const stages = Array.isArray(pipeline?.stages) ? pipeline.stages : [];
+  const stageValid = stages.some((stage) => String(stage?.id) === String(typeRule.hubspot_stage_aguardando_proposta));
+  if (!stageValid) {
+    const error = requestError('HubSpot pipeline/stage configuration is invalid', {
+      pipeline: typeRule.hubspot_pipeline,
+      stage: typeRule.hubspot_stage_aguardando_proposta,
+    });
+    error.taxonomy = ERROR_TAXONOMY.VALIDATION_ERROR;
+    throw error;
+  }
+  return { solution, pipeline: String(pipeline?.id || typeRule.hubspot_pipeline), stage: String(typeRule.hubspot_stage_aguardando_proposta) };
+}
+
+function dealEquivalence(resource, expected) {
+  const properties = resource?.properties || {};
+  const mismatches = [];
+  const compare = (field, actual, wanted) => {
+    if (actual === undefined || actual === null || wanted === undefined || wanted === null) return;
+    if (normalizeComparable(actual) !== normalizeComparable(wanted)) mismatches.push({ field, expected: wanted, actual });
+  };
+  compare('numero_da_proposta', properties.numero_da_proposta, expected.numero_da_proposta);
+  compare('pipeline', properties.pipeline, expected.pipeline);
+  compare('dealstage', properties.dealstage, expected.dealstage);
+  compare('solucao', properties.solucao, expected.solucao);
+  compare('amount', properties.amount, expected.amount);
+  return { equivalent: mismatches.length === 0, mismatches };
+}
+
+async function verifyDealWrite(numero, expected, correlationId) {
+  const delays = [0, 400, 900];
+  let last = null;
+  for (let attempt = 0; attempt < delays.length; attempt += 1) {
+    if (delays[attempt]) await sleep(delays[attempt]);
+    try {
+      last = await hubspotSearch(
+        'deals',
+        'numero_da_proposta',
+        numero,
+        ['dealname', 'numero_da_proposta', 'link_da_proposta', 'solucao', 'pipeline', 'dealstage', 'amount', 'deal_currency_code'],
+        { correlationId, operation: 'verify_hubspot_deal' },
+      );
+      if (Number(last?.total || 0) > 0) {
+        const resource = last.results[0];
+        const comparison = dealEquivalence(resource, expected);
+        return {
+          outcome: 'found',
+          equivalent: comparison.equivalent,
+          resource,
+          details: { attempts: attempt + 1, mismatches: comparison.mismatches },
+        };
+      }
+    } catch (error) {
+      last = {
+        message: error instanceof Error ? error.message : 'deal_verification_failed',
+        http_status: error?.status ?? null,
+        downstream_response: sanitizePayload(error?.data ?? null),
+      };
+    }
+  }
+  if (last && typeof last === 'object' && Object.prototype.hasOwnProperty.call(last, 'message')) {
+    return { outcome: 'inconclusive', details: { attempts: delays.length, last } };
+  }
+  return { outcome: 'absent', details: { attempts: delays.length, last: sanitizePayload(last) } };
 }
 
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'seta-erp-connector', configured: getMissingEnv().length === 0, hubspot_configured: Boolean(HUBSPOT_ACCESS_TOKEN) }));
@@ -511,6 +798,7 @@ app.put('/erp/orcamentos/:id', async (req, res) => {
 });
 app.post('/erp/orcamentos', async (req, res) => {
   try {
+    const correlationId = req.correlationId;
     const { introduction, metadata } = buildProposalIntroduction(req.body || {});
     const {
       tipo_proposta,
@@ -524,11 +812,62 @@ app.post('/erp/orcamentos', async (req, res) => {
     } = req.body || {};
     betelBody.introducao = introduction;
     if (metadata.prazo_entrega_data) betelBody.prazo_entrega = metadata.prazo_entrega_data;
-    const result = await betelRequest('/orcamentos', { method: 'POST', body: betelBody });
-    const publicLink = await resolvePublicProposalLink(result);
-    res.json({
-      status: 'success',
-      proposal: result,
+    const numero = String(betelBody.codigo || '').trim();
+    if (!/^\d+$/.test(numero)) throw requestError('codigo comercial da proposta deve ser numerico', { field: 'codigo' });
+
+    const precheck = await verifyProposalWrite(numero, betelBody, correlationId);
+    if (precheck.outcome === 'found') {
+      return res.status(200).json({
+        operation: 'create_proposal',
+        write_attempted: false,
+        http_status: null,
+        downstream_response: null,
+        verification: { performed: true, found: true, equivalent: precheck.equivalent, numero, resource: sanitizePayload(precheck.resource), details: precheck.details },
+        effective_status: EFFECTIVE_STATUS.DUPLICATE,
+        error_taxonomy: ERROR_TAXONOMY.DUPLICATE,
+        endpoint: '/orcamentos',
+        request_correlation_id: correlationId,
+        sanitized_payload: sanitizePayload(betelBody),
+        timestamp: new Date().toISOString(),
+      });
+    }
+    if (precheck.outcome === 'inconclusive') {
+      return res.status(200).json({
+        operation: 'create_proposal',
+        write_attempted: false,
+        verification: { performed: true, found: null, outcome: 'inconclusive', details: precheck.details },
+        effective_status: EFFECTIVE_STATUS.WRITE_UNCERTAIN,
+        error_taxonomy: ERROR_TAXONOMY.WRITE_UNCERTAIN,
+        endpoint: '/orcamentos',
+        request_correlation_id: correlationId,
+        sanitized_payload: sanitizePayload(betelBody),
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const reconciliation = await reconcileWrite({
+      operation: 'create_proposal',
+      endpoint: '/orcamentos',
+      correlationId,
+      payload: betelBody,
+      write: () => betelRequest('/orcamentos', {
+        method: 'POST',
+        body: betelBody,
+        correlationId,
+        operation: 'create_proposal',
+        observe: true,
+      }),
+      verify: () => verifyProposalWrite(numero, betelBody, correlationId),
+    });
+    const canContinue = [EFFECTIVE_STATUS.SUCCESS, EFFECTIVE_STATUS.SUCCESS_RECOVERED]
+      .includes(reconciliation.effective_status);
+    const publicLink = canContinue
+      ? await resolvePublicProposalLink(reconciliation.verification.resource || reconciliation.downstream_response)
+      : {};
+    return res.status(200).json({
+      status: canContinue ? 'success' : 'error',
+      ...reconciliation,
+      proposal: reconciliation.downstream_response,
       commercial: metadata,
       introducao_enviada: introduction,
       introducao_substituida: true,
@@ -571,11 +910,12 @@ app.get('/erp/hubspot/negocios', async (req, res) => {
 
 app.post('/erp/hubspot/negocios-da-proposta', async (req, res) => {
   try {
+    const correlationId = req.correlationId;
     const body = req.body || {};
     const numero = String(body.numero_proposta || '').trim();
     const empresa = String(body.empresa || '').trim();
     const domain = String(body.domain || '').trim().toLowerCase();
-    const solucao = String(body.solucao || '').trim();
+    const solucaoComercial = String(body.solucao || '').trim();
     const link = String(body.link_proposta || '').trim();
     const currency = String(body.moeda || 'BRL').trim().toUpperCase();
     const { rules, typeKey, typeRule } = getProposalTypeRule(body.tipo_proposta);
@@ -584,24 +924,20 @@ app.post('/erp/hubspot/negocios-da-proposta', async (req, res) => {
     if (!numero) throw requestError('numero_proposta e obrigatorio', { field: 'numero_proposta' });
     if (!empresa) throw requestError('empresa e obrigatoria', { field: 'empresa' });
     if (!domain) throw requestError('domain e obrigatorio para localizar/criar a empresa no HubSpot', { field: 'domain' });
-    if (!solucao) throw requestError('solucao e obrigatoria', { field: 'solucao' });
+    if (!solucaoComercial) throw requestError('solucao e obrigatoria', { field: 'solucao' });
     if (!link) throw requestError('link_proposta e obrigatorio antes de criar o Deal', { field: 'link_proposta' });
     if (!['BRL', 'USD'].includes(currency)) throw requestError('moeda invalida', { field: 'moeda', allowed: ['BRL', 'USD'] });
     if (amountData.amount < 0) throw requestError('valor do negocio nao pode ser negativo', { field: 'valor_negocio' });
 
-    const duplicate = await hubspotSearch('deals', rules.workflow.deal_number_property || 'numero_da_proposta', numero, ['dealname', 'numero_da_proposta', 'link_da_proposta']);
-    if (duplicate.total > 0) return res.status(409).json({ error: 'deal_duplicate', message: 'Ja existe um negocio no HubSpot com este numero de proposta.', existing: duplicate.results[0] });
-
-    const companyResult = await findOrCreateCompany({ empresa, domain });
-    const selectedContacts = normalizeContacts(body);
-    const contacts = await findOrCreateContacts(selectedContacts, companyResult.record.id);
+    const resolvedConfig = await resolveHubSpotDealConfig(typeRule, solucaoComercial, correlationId);
+    const solucao = resolvedConfig.solution;
 
     const dealName = String(rules.deal_name_pattern || '{numero_proposta} - {empresa} - {solucao}')
-      .replaceAll('{numero_proposta}', numero).replaceAll('{empresa}', empresa).replaceAll('{solucao}', solucao);
+      .replaceAll('{numero_proposta}', numero).replaceAll('{empresa}', empresa).replaceAll('{solucao}', solucaoComercial);
     const properties = {
       dealname: dealName,
-      pipeline: typeRule.hubspot_pipeline,
-      dealstage: typeRule.hubspot_stage_aguardando_proposta,
+      pipeline: resolvedConfig.pipeline,
+      dealstage: resolvedConfig.stage,
       numero_da_proposta: numero,
       link_da_proposta: link,
       solucao,
@@ -610,20 +946,90 @@ app.post('/erp/hubspot/negocios-da-proposta', async (req, res) => {
     };
     if (body.hubspot_owner_id) properties.hubspot_owner_id = String(body.hubspot_owner_id);
 
-    const deal = await hubspotCreate('deals', properties);
-    await hubspotAssociate('deal', deal.id, 'company', companyResult.record.id);
-    for (const contact of contacts) await hubspotAssociate('deal', deal.id, 'contact', contact.id);
+    const duplicate = await hubspotSearch(
+      'deals',
+      rules.workflow.deal_number_property || 'numero_da_proposta',
+      numero,
+      ['dealname', 'numero_da_proposta', 'link_da_proposta', 'solucao', 'pipeline', 'dealstage', 'amount'],
+      { correlationId, operation: 'precheck_hubspot_deal_duplicate' },
+    );
+    if (duplicate.total > 0) {
+      const comparison = dealEquivalence(duplicate.results[0], properties);
+      return res.status(200).json({
+        operation: 'create_hubspot_deal',
+        write_attempted: false,
+        http_status: null,
+        downstream_response: null,
+        verification: { performed: true, found: true, equivalent: comparison.equivalent, resource: duplicate.results[0], details: comparison },
+        effective_status: EFFECTIVE_STATUS.DUPLICATE,
+        error_taxonomy: ERROR_TAXONOMY.DUPLICATE,
+        endpoint: '/crm/v3/objects/deals',
+        request_correlation_id: correlationId,
+        sanitized_payload: sanitizePayload({ properties }),
+        timestamp: new Date().toISOString(),
+      });
+    }
 
-    res.json({
-      status: 'success',
+    const companyResult = await findOrCreateCompany({ empresa, domain }, correlationId);
+    const selectedContacts = normalizeContacts(body);
+    const contacts = await findOrCreateContacts(selectedContacts, companyResult.record.id, correlationId);
+
+    const reconciliation = await reconcileWrite({
+      operation: 'create_hubspot_deal',
+      endpoint: '/crm/v3/objects/deals',
+      correlationId,
+      payload: { properties },
+      acceptDirectEvidence: true,
+      directEvidence: (value) => Boolean(value?.id),
+      write: () => hubspotRequest('/crm/v3/objects/deals', {
+        method: 'POST',
+        body: { properties },
+        correlationId,
+        operation: 'create_hubspot_deal',
+        observe: true,
+      }),
+      verify: () => verifyDealWrite(numero, properties, correlationId),
+    });
+    const canContinue = [EFFECTIVE_STATUS.SUCCESS, EFFECTIVE_STATUS.SUCCESS_RECOVERED]
+      .includes(reconciliation.effective_status);
+    const deal = reconciliation.downstream_response?.id
+      ? reconciliation.downstream_response
+      : reconciliation.verification?.resource;
+    const associationResults = [];
+    const associationFailures = [];
+    if (canContinue && deal?.id) {
+      const targets = [
+        { type: 'company', id: companyResult.record.id },
+        ...contacts.map((contact) => ({ type: 'contact', id: contact.id })),
+      ];
+      for (const target of targets) {
+        try {
+          await hubspotAssociate('deal', deal.id, target.type, target.id, {
+            correlationId,
+            operation: 'associate_hubspot_deal',
+          });
+          associationResults.push(target);
+        } catch (error) {
+          associationFailures.push({ ...target, message: error instanceof Error ? error.message : 'association_failed' });
+        }
+      }
+    }
+
+    return res.status(200).json({
+      status: canContinue ? (associationFailures.length ? 'partial_success' : 'success') : 'error',
+      ...reconciliation,
       deal,
       deal_name: dealName,
       tipo_proposta: typeKey,
-      pipeline: typeRule.hubspot_pipeline,
-      dealstage: typeRule.hubspot_stage_aguardando_proposta,
+      pipeline: resolvedConfig.pipeline,
+      dealstage: resolvedConfig.stage,
+      solucao_comercial: solucaoComercial,
+      solucao_internal_value: solucao,
       amount: amountData,
       company: { id: companyResult.record.id, created: companyResult.created, domain },
       contacts,
+      associations: associationResults,
+      association_failures: associationFailures,
       email_workflow: rules.email || null
     });
   } catch (err) { handleError(err, res); }

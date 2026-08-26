@@ -1,9 +1,18 @@
 import express from 'express';
 import fs from 'fs';
 import { spawn } from 'child_process';
+import { correlationIdFrom, sanitizePayload, structuredLog } from './commercial-write-reconciliation.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+app.use((req, res, next) => {
+  const correlationId = correlationIdFrom(req.headers['x-correlation-id']);
+  req.correlationId = correlationId;
+  req.headers['x-correlation-id'] = correlationId;
+  res.setHeader('x-correlation-id', correlationId);
+  structuredLog('connector_request_received', { correlation_id: correlationId, method: req.method, path: req.path });
+  next();
+});
 
 const PORT = Number(process.env.PORT || 3000);
 const INTERNAL_PORT = Number(process.env.INTERNAL_CONNECTOR_PORT || 3001);
@@ -33,7 +42,12 @@ function handleError(err, res) {
       error: `${err.source || 'request'}_error`,
       status: err.status,
       message: err.message,
-      details: err.data
+      details: sanitizePayload(err.data),
+      request_correlation_id: err.correlation_id || null,
+      downstream_request_id: err.request_id || null,
+      endpoint: err.endpoint || null,
+      operation: err.operation || null,
+      timestamp: err.timestamp || new Date().toISOString()
     });
   }
   return res.status(500).json({ error: 'gateway_error', message: err.message });
@@ -605,6 +619,8 @@ async function proxyToLegacy(req, res) {
     res.status(response.status);
     const contentType = response.headers.get('content-type');
     if (contentType) res.setHeader('content-type', contentType);
+    const correlationId = response.headers.get('x-correlation-id');
+    if (correlationId) res.setHeader('x-correlation-id', correlationId);
     res.send(buffer);
   } catch (err) {
     res.status(502).json({ error: 'legacy_connector_unavailable', message: err.message });
