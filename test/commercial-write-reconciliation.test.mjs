@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   EFFECTIVE_STATUS,
   ERROR_TAXONOMY,
+  extractDownstreamValidation,
   reconcileWrite,
   resolveEnumOption,
 } from '../commercial-write-reconciliation.js';
@@ -41,18 +42,48 @@ test('HTTP 400 plus created resource is SUCCESS_RECOVERED', async () => {
   assert.equal(result.effective_status, EFFECTIVE_STATUS.SUCCESS_RECOVERED);
   assert.equal(result.error_taxonomy, ERROR_TAXONOMY.WRITE_CONFIRMED_AFTER_ERROR);
   assert.deepEqual(result.downstream_response, { error: 'late validation response' });
+  assert.equal(result.downstream_message, 'late validation response');
 });
 
-test('HTTP 400 plus confirmed absence is FAILED and is never retried', async () => {
+test('HTTP 400 plus confirmed absence exposes Betel validation message and fields', async () => {
   let attempts = 0;
   const result = await reconcileWrite({
     ...base,
-    write: async () => { attempts += 1; throw httpError(400, { error: 'rejected' }); },
+    write: async () => {
+      attempts += 1;
+      throw httpError(400, {
+        status: 'error',
+        errors: [
+          { campo: 'situacao_id', mensagem: 'Situacao invalida para o orcamento' },
+          { field: 'produtos.0.valor_venda', message: 'Valor de venda deve ser maior que zero' },
+        ],
+      });
+    },
     verify: async () => ({ outcome: 'absent' }),
   });
   assert.equal(attempts, 1);
   assert.equal(result.effective_status, EFFECTIVE_STATUS.FAILED);
   assert.equal(result.error_taxonomy, ERROR_TAXONOMY.DOWNSTREAM_REJECTED);
+  assert.equal(result.downstream_message, 'Situacao invalida para o orcamento');
+  assert.deepEqual(result.validation_errors, [
+    { field: 'situacao_id', message: 'Situacao invalida para o orcamento' },
+    { field: 'produtos.0.valor_venda', message: 'Valor de venda deve ser maior que zero' },
+  ]);
+  assert.equal(result.downstream_error.message, 'Situacao invalida para o orcamento');
+});
+
+test('extractDownstreamValidation handles nested Betel payloads and redacts secrets', () => {
+  const result = extractDownstreamValidation({
+    data: {
+      validacao: {
+        erros: [{ atributo: 'cliente_id', descricao: 'Cliente nao encontrado', token: 'secret' }],
+      },
+    },
+  });
+  assert.equal(result.downstream_message, 'Cliente nao encontrado');
+  assert.deepEqual(result.validation_errors, [
+    { field: 'cliente_id', message: 'Cliente nao encontrado' },
+  ]);
 });
 
 test('timeout plus created resource is SUCCESS_RECOVERED', async () => {
