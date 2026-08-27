@@ -84,17 +84,97 @@ export function classifyError(error) {
   return status >= 500 ? ERROR_TAXONOMY.DOWNSTREAM_REJECTED : ERROR_TAXONOMY.INTERNAL_ERROR;
 }
 
+const MESSAGE_KEYS = new Set(['message', 'mensagem', 'error', 'erro', 'detail', 'details', 'descricao', 'description']);
+const FIELD_KEYS = ['field', 'campo', 'property', 'propriedade', 'attribute', 'atributo'];
+
+function primitiveText(value) {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return null;
+}
+
+function findDownstreamMessage(value, depth = 0) {
+  if (depth > 8 || value === null || value === undefined) return null;
+  const direct = primitiveText(value);
+  if (direct) return direct;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findDownstreamMessage(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof value !== 'object') return null;
+  for (const [key, item] of Object.entries(value)) {
+    if (!MESSAGE_KEYS.has(String(key).toLowerCase())) continue;
+    const found = findDownstreamMessage(item, depth + 1);
+    if (found) return found;
+  }
+  for (const item of Object.values(value)) {
+    const found = findDownstreamMessage(item, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findField(record) {
+  for (const key of FIELD_KEYS) {
+    const value = primitiveText(record?.[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function collectValidationErrors(value, output = [], depth = 0) {
+  if (depth > 8 || value === null || value === undefined) return output;
+  if (Array.isArray(value)) {
+    for (const item of value) collectValidationErrors(item, output, depth + 1);
+    return output;
+  }
+  if (typeof value !== 'object') return output;
+
+  const field = findField(value);
+  let message = null;
+  for (const key of MESSAGE_KEYS) {
+    if (!(key in value)) continue;
+    const candidate = findDownstreamMessage(value[key], depth + 1);
+    if (candidate) {
+      message = candidate;
+      break;
+    }
+  }
+  if (message && (field || depth > 0)) {
+    const entry = { field, message };
+    if (!output.some((item) => item.field === entry.field && item.message === entry.message)) output.push(entry);
+  }
+
+  for (const item of Object.values(value)) collectValidationErrors(item, output, depth + 1);
+  return output;
+}
+
+export function extractDownstreamValidation(value) {
+  const sanitized = sanitizePayload(value);
+  return {
+    downstream_message: findDownstreamMessage(sanitized),
+    validation_errors: collectValidationErrors(sanitized),
+  };
+}
+
 function downstreamEvidence(error, fallback) {
+  const downstreamResponse = sanitizePayload(error?.data ?? error?.downstream_response ?? null);
+  const validation = extractDownstreamValidation(downstreamResponse);
   return {
     http_status: Number(error?.status || error?.http_status || 0) || null,
-    downstream_response: sanitizePayload(error?.data ?? error?.downstream_response ?? null),
+    downstream_response: downstreamResponse,
+    downstream_message: validation.downstream_message,
+    validation_errors: validation.validation_errors,
     endpoint: error?.endpoint || fallback.endpoint,
     operation: error?.operation || fallback.operation,
     request_correlation_id: error?.correlation_id || fallback.correlationId,
     downstream_request_id: error?.request_id || null,
     sanitized_payload: sanitizePayload(error?.payload ?? fallback.payload),
     timestamp: error?.timestamp || new Date().toISOString(),
-    message: error instanceof Error ? error.message : String(error || 'downstream_write_failed'),
+    message: validation.downstream_message || (error instanceof Error ? error.message : String(error || 'downstream_write_failed')),
   };
 }
 
@@ -209,6 +289,8 @@ export async function reconcileWrite({
     downstream_response: writeError
       ? failure.downstream_response
       : sanitizePayload(observation?.data ?? null),
+    ...(failure?.downstream_message ? { downstream_message: failure.downstream_message } : {}),
+    ...(failure?.validation_errors?.length ? { validation_errors: failure.validation_errors } : {}),
     endpoint,
     request_correlation_id: correlationId,
     downstream_request_id: writeError ? failure.downstream_request_id : observation?.request_id ?? null,
