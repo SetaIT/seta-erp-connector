@@ -154,9 +154,10 @@ function collectValidationErrors(value, output = [], depth = 0) {
 
 export function extractDownstreamValidation(value) {
   const sanitized = sanitizePayload(value);
+  const validationErrors = collectValidationErrors(sanitized);
   return {
-    downstream_message: findDownstreamMessage(sanitized),
-    validation_errors: collectValidationErrors(sanitized),
+    downstream_message: validationErrors[0]?.message || findDownstreamMessage(sanitized),
+    validation_errors: validationErrors,
   };
 }
 
