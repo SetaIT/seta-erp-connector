@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import { spawn } from 'child_process';
 import { correlationIdFrom, sanitizePayload, structuredLog } from './commercial-write-reconciliation.js';
+import { findEmailByOutlookMessageId } from './commercial-email-idempotency.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -287,7 +288,7 @@ async function getAssociatedEmails(dealId) {
   const emails = [];
   for (const id of ids.slice(0, 50)) {
     try {
-      const email = await hubspotRequest(`/crm/v3/objects/emails/${encodeURIComponent(id)}?properties=hs_timestamp,hs_email_subject,hs_email_status,hs_email_direction,hs_email_from_email,hs_email_to_email,hs_email_text`);
+      const email = await hubspotRequest(`/crm/v3/objects/emails/${encodeURIComponent(id)}?properties=hs_timestamp,hs_email_subject,hs_email_status,hs_email_direction,hs_email_from_email,hs_email_to_email,hs_email_text,hs_email_headers`);
       emails.push(email);
     } catch (err) {
       emails.push({ id, error: err.message });
@@ -533,8 +534,24 @@ app.post('/erp/hubspot/emails/registrar-envio', auth, async (req, res) => {
     if (!texto) throw requestError('texto e obrigatorio', { field: 'texto' });
     const timestamp = body.enviado_em ? new Date(body.enviado_em) : new Date();
     if (Number.isNaN(timestamp.getTime())) throw requestError('enviado_em deve ser uma data/hora ISO valida', { field: 'enviado_em' });
+    const outlookMessageId = String(body.outlook_message_id || '').trim();
+    if (!outlookMessageId) throw requestError('outlook_message_id e obrigatorio como evidencia do envio real', { field: 'outlook_message_id' });
+
+    if (body.deal_id) {
+      const existing = findEmailByOutlookMessageId(await getAssociatedEmails(body.deal_id), outlookMessageId);
+      if (existing) {
+        return res.status(200).json({
+          status: 'already_registered',
+          write_attempted: false,
+          outlook_message_id: outlookMessageId,
+          email: existing,
+          next_action: body.atualizar_etapa === true ? 'verify_or_mark_proposal_sent_stage' : 'none'
+        });
+      }
+    }
 
     const headers = {
+      messageId: outlookMessageId,
       from: { email: remetenteEmail, firstName: String(body.remetente?.firstName || body.remetente?.firstname || body.remetente?.nome || '').trim(), lastName: String(body.remetente?.lastName || body.remetente?.lastname || body.remetente?.sobrenome || '').trim() },
       sender: { email: remetenteEmail, firstName: String(body.remetente?.firstName || body.remetente?.firstname || body.remetente?.nome || '').trim(), lastName: String(body.remetente?.lastName || body.remetente?.lastname || body.remetente?.sobrenome || '').trim() },
       to: destinatarios, cc, bcc
@@ -562,7 +579,7 @@ app.post('/erp/hubspot/emails/registrar-envio', auth, async (req, res) => {
       dealStageUpdate = await hubspotRequest(`/crm/v3/objects/deals/${encodeURIComponent(body.deal_id)}`, { method: 'PATCH', body: { properties: { dealstage: typeRule.hubspot_stage_proposta_enviada } } });
     }
 
-    res.status(201).json({ status: associationFailures.length ? 'partial_success' : 'success', email: { id: email.id, subject: assunto, status: 'SENT', direction: 'EMAIL', timestamp: timestamp.toISOString(), outlook_message_id: body.outlook_message_id || null }, associations: associationResults, association_failures: associationFailures, deal_stage_updated: Boolean(dealStageUpdate), deal: dealStageUpdate });
+    res.status(201).json({ status: associationFailures.length ? 'partial_success' : 'success', email: { id: email.id, subject: assunto, status: 'SENT', direction: 'EMAIL', timestamp: timestamp.toISOString(), outlook_message_id: outlookMessageId }, associations: associationResults, association_failures: associationFailures, deal_stage_updated: Boolean(dealStageUpdate), deal: dealStageUpdate });
   } catch (err) {
     handleError(err, res);
   }
