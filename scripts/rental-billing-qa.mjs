@@ -51,6 +51,39 @@ try {
   assert.equal((await request('/health')).status, 200);
   assert.equal((await request('/erp/locacoes/faturamento/preflight', payload, false)).status, 401);
 
+  const veoliaMonday = await request('/erp/locacoes/faturamento/calcular-regra', {
+    cliente_regra: 'Veolia', vencimento_fatura_anterior: '2026-08-28', data_edicao: '2026-08-28'
+  });
+  assert.equal(veoliaMonday.status, 200);
+  assert.equal(veoliaMonday.body.vencimento_minimo, '2026-10-12');
+  assert.equal(veoliaMonday.body.data_vencimento, '2026-10-14');
+  assert.equal(veoliaMonday.body.data_emissao, '2026-08-28');
+  assert.equal(veoliaMonday.body.write_attempted, false);
+
+  const veoliaWednesday = await request('/erp/locacoes/faturamento/calcular-regra', {
+    cliente_regra: 'veolia', vencimento_fatura_anterior: '2026-08-29', data_edicao: '2026-08-30'
+  });
+  assert.equal(veoliaWednesday.status, 200);
+  assert.equal(veoliaWednesday.body.vencimento_minimo, '2026-10-13');
+  assert.equal(veoliaWednesday.body.data_vencimento, '2026-10-14');
+
+  const exactWednesday = await request('/erp/locacoes/faturamento/calcular-regra', {
+    cliente_regra: 'veolia', vencimento_fatura_anterior: '2026-08-30', data_edicao: '2026-08-30'
+  });
+  assert.equal(exactWednesday.body.vencimento_minimo, '2026-10-14');
+  assert.equal(exactWednesday.body.data_vencimento, '2026-10-14');
+
+  const afterThursday = await request('/erp/locacoes/faturamento/calcular-regra', {
+    cliente_regra: 'veolia', vencimento_fatura_anterior: '2026-08-31', data_edicao: '2026-08-31'
+  });
+  assert.equal(afterThursday.body.vencimento_minimo, '2026-10-15');
+  assert.equal(afterThursday.body.data_vencimento, '2026-10-21');
+
+  const unknownRule = await request('/erp/locacoes/faturamento/calcular-regra', {
+    cliente_regra: 'cliente-inexistente', vencimento_fatura_anterior: '2026-08-28', data_edicao: '2026-08-28'
+  });
+  assert.equal(unknownRule.status, 400);
+
   calls.length = 0;
   const preview = await request('/erp/locacoes/faturamento/preflight', payload);
   assert.equal(preview.status, 200);

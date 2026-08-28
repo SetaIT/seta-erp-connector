@@ -8,11 +8,14 @@ O servico existente continua no commit-base `f580f242cf2c172bf29aac958d6b3890eb1
 
 ## Fluxo
 
-1. `POST /erp/locacoes/faturamento/preflight` valida os campos e procura duplicidade sem gravar.
-2. `POST /erp/locacoes/faturamento/executar` exige `confirmacao_gravacao: true`.
-3. O recebimento e criado primeiro.
-4. A NFS-e e sempre criada em aberto com `envio_automatico: 0`.
-5. A emissao exige `emitir_nfse: true` e `confirmacao_emissao: true`.
+1. `POST /erp/locacoes/faturamento/calcular-regra` calcula datas e etapas pela regra do cliente sem gravar.
+2. `POST /erp/locacoes/faturamento/preflight` valida os campos e procura duplicidade sem gravar.
+3. `POST /erp/locacoes/faturamento/executar` exige `confirmacao_gravacao: true`.
+4. O recebimento e criado primeiro.
+5. A NFS-e e sempre criada em aberto com `envio_automatico: 0`.
+6. A emissao exige `emitir_nfse: true` e `confirmacao_emissao: true`.
+
+As regras por cliente residem em `billing-rules.json`. Para a Veolia, o calculo parte do vencimento anterior, soma 45 dias e avanca para a primeira quarta-feira igual ou posterior. A data de emissao planejada e a data da edicao. O endpoint de calculo e estritamente read-only.
 
 Cada competencia usa uma chave de idempotencia unica, gravada nas descricoes como `[SETA-LOCACAO:<chave>]`.
 

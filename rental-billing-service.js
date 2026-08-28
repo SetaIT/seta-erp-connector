@@ -12,6 +12,7 @@ const BETEL_ACCESS_TOKEN = process.env.BETEL_ACCESS_TOKEN;
 const BETEL_SECRET_ACCESS_TOKEN = process.env.BETEL_SECRET_ACCESS_TOKEN;
 const RENTAL_BILLING_API_KEY = process.env.RENTAL_BILLING_API_KEY;
 const LEDGER_PATH = process.env.RENTAL_BILLING_LEDGER_PATH || path.resolve('data/rental-billing-ledger.json');
+const BILLING_RULES_PATH = process.env.RENTAL_BILLING_RULES_PATH || path.resolve('billing-rules.json');
 const LEDGER_LOCK_PATH = `${LEDGER_PATH}.lock`;
 const BETEL_TIMEOUT_MS = Math.max(1000, Math.min(Number(process.env.RENTAL_BILLING_UPSTREAM_TIMEOUT_MS) || 15000, 60000));
 
@@ -60,6 +61,70 @@ function requestError(message, details = {}) {
   error.status = 400;
   error.details = details;
   return error;
+}
+
+async function readBillingRules() {
+  const rules = JSON.parse(await fs.readFile(BILLING_RULES_PATH, 'utf8'));
+  if (!Array.isArray(rules?.clients)) throw new Error('billing-rules.json invalido');
+  return rules;
+}
+
+function parseIsoDate(value, field) {
+  isoDate(value, field);
+  const [year, month, day] = String(value).split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function formatIsoDate(value) {
+  return value.toISOString().slice(0, 10);
+}
+
+function addUtcDays(value, days) {
+  const result = new Date(value);
+  result.setUTCDate(result.getUTCDate() + days);
+  return result;
+}
+
+function nextOrSameWeekday(value, weekday) {
+  const result = new Date(value);
+  const delta = (weekday - result.getUTCDay() + 7) % 7;
+  result.setUTCDate(result.getUTCDate() + delta);
+  return result;
+}
+
+async function calculateBillingRule(body) {
+  const clientKey = String(required(body?.cliente_regra, 'cliente_regra')).trim().toLowerCase();
+  const rules = await readBillingRules();
+  const rule = rules.clients.find(item => item.ativo === true && (
+    String(item.key).toLowerCase() === clientKey ||
+    item.aliases?.some(alias => String(alias).toLowerCase() === clientKey)
+  ));
+  if (!rule) throw requestError('regra de faturamento ativa nao encontrada', { cliente_regra: body.cliente_regra });
+
+  const previousDueDate = parseIsoDate(body?.vencimento_fatura_anterior, 'vencimento_fatura_anterior');
+  const editDate = parseIsoDate(body?.data_edicao, 'data_edicao');
+  const minimumDays = Number(rule.vencimento?.dias_minimos);
+  if (!Number.isInteger(minimumDays) || minimumDays < 0) throw new Error(`regra ${rule.key} possui dias_minimos invalido`);
+
+  const minimumDueDate = addUtcDays(previousDueDate, minimumDays);
+  let dueDate = minimumDueDate;
+  if (rule.vencimento?.ajuste_dia_semana === 'quarta-feira' && rule.vencimento?.regra_ajuste === 'primeira_quarta_igual_ou_posterior') {
+    dueDate = nextOrSameWeekday(minimumDueDate, 3);
+  }
+  if (rule.vencimento?.nunca_antecipar === true && dueDate < minimumDueDate) throw new Error(`regra ${rule.key} antecipou o vencimento`);
+
+  return {
+    status: 'calculated',
+    write_attempted: false,
+    cliente_regra: rule.key,
+    data_emissao: rule.emissao?.base === 'data_edicao' ? formatIsoDate(editDate) : null,
+    vencimento_fatura_anterior: formatIsoDate(previousDueDate),
+    vencimento_minimo: formatIsoDate(minimumDueDate),
+    data_vencimento: formatIsoDate(dueDate),
+    dias_minimos: minimumDays,
+    workflow: rule.workflow,
+    regra_versao: rules.version
+  };
 }
 
 function cleanQuery(query = {}) {
@@ -329,6 +394,10 @@ app.get('/health', (_req, res) => res.json({
   kill_switch_active: process.env.RENTAL_BILLING_KILL_SWITCH === 'true'
 }));
 app.use(auth);
+
+app.post('/erp/locacoes/faturamento/calcular-regra', async (req, res) => {
+  try { res.json(await calculateBillingRule(req.body || {})); } catch (error) { handleError(error, res); }
+});
 
 app.post('/erp/locacoes/faturamento/preflight', async (req, res) => {
   try { res.json(await preflight(req.body || {})); } catch (error) { handleError(error, res); }
