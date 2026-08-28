@@ -1114,6 +1114,8 @@ app.delete('/erp/hubspot/negocios/:id', async (req, res) => {
     
     if (!dealId) throw requestError('deal_id (ID interno do HubSpot) e obrigatorio no caminho', { field: 'deal_id', note: 'Use o ID interno do HubSpot, nunca o numero de proposta' });
     
+    if (req.body?.confirmacao_exclusao !== true) throw requestError('confirmacao_exclusao deve ser true para confirmar a exclusao irreversivel do deal', { field: 'confirmacao_exclusao', required: true });
+    
     // Step 1: GET preview - evidência do deal antes do delete
     let preview;
     try {

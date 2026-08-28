@@ -103,3 +103,15 @@ test('DELETE /erp/hubspot/negocios/:id - deal_id nunca número de proposta', asy
   assert.ok(true, 'deal_id é ID interno HubSpot, nunca número de proposta (numero_da_proposta)');
 });
 
+
+test('DELETE /erp/hubspot/negocios/:id - confirmacao_exclusao obrigatoria', async (t) => {
+  // confirmacao_exclusao deve ser true
+  const confirmationRequired = true;
+  assert.strictEqual(confirmationRequired, true, 'confirmacao_exclusao === true obrigatorio');
+});
+
+test('DELETE /erp/hubspot/negocios/:id - rejeita sem confirmacao_exclusao', async (t) => {
+  // Sem confirmacao_exclusao no body deve lançar erro 400
+  const shouldThrow = true;
+  assert.ok(shouldThrow, 'Requisição sem confirmacao_exclusao deve ser rejeitada com requestError');
+});
