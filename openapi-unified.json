@@ -244,7 +244,7 @@
           "required": true,
           "content": {"application/json": {"schema": {
             "type": "object",
-            "required": ["envio_confirmado", "remetente", "destinatarios", "assunto", "texto"],
+            "required": ["envio_confirmado", "remetente", "destinatarios", "assunto", "texto", "outlook_message_id"],
             "properties": {
               "envio_confirmado": {"type": "boolean", "const": true},
               "remetente": {"type": "object", "required": ["email"], "properties": {"email": {"type": "string"}, "firstName": {"type": "string"}, "lastName": {"type": "string"}}},

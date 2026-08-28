@@ -89,6 +89,7 @@ if (action) {
   const emailSchema = action.components?.schemas?.EmailEnviadoInput;
   if (emailSchema) {
     assert(emailSchema?.required?.includes('envio_confirmado'), 'EmailEnviadoInput deve exigir envio_confirmado');
+    assert(emailSchema?.required?.includes('outlook_message_id'), 'EmailEnviadoInput deve exigir outlook_message_id para idempotencia');
     assert(emailSchema?.properties?.envio_confirmado?.const === true, 'envio_confirmado deve aceitar somente true');
   }
 
@@ -105,12 +106,18 @@ if (action) {
   }
 }
 
-for (const file of ['gateway.js','server.js','commercial-write-reconciliation.js','deployment-diagnostics-preload.js','read-diagnostics-preload.js','read-resilient-preload.js','edit-diagnostics-preload.js','number-write-preload.js','scripts/write-deployment-build.mjs']) {
+for (const file of ['gateway.js','server.js','commercial-write-reconciliation.js','commercial-email-idempotency.js','deployment-diagnostics-preload.js','read-diagnostics-preload.js','read-resilient-preload.js','edit-diagnostics-preload.js','number-write-preload.js','scripts/write-deployment-build.mjs']) {
   try { execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' }); }
   catch (err) { fail(`${file}: falha de sintaxe JavaScript - ${String(err.stderr || err.message).trim()}`); }
 }
 
 for (const file of ['proposal-rules.json','billing-rules.json']) readJson(file);
+const proposalRules = readJson('proposal-rules.json');
+assert(proposalRules?.workflow?.approval_policy === 'single_commercial_package', 'proposal-rules.json: politica de aprovacao unica ausente');
+for (const template of ['nova_proposta', 'proposta_revisada', 'followup']) {
+  assert(proposalRules?.email?.templates?.[template]?.single_recipient, `template ${template}.single_recipient ausente`);
+  assert(proposalRules?.email?.templates?.[template]?.multiple_recipients, `template ${template}.multiple_recipients ausente`);
+}
 
 for (const warning of warnings) console.log(`WARN: ${warning}`);
 if (failures.length) {

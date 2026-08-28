@@ -75,6 +75,21 @@ Tarefa principal atual: Issue #5 - CRUD de propostas somente por numero comercia
 - [ ] fluxo Deal -> email -> Proposta Enviada -> follow-up -> Ganho/Perdido;
 - [ ] testes de regressao das regras comerciais.
 
+### Assistente Comercial ponta a ponta
+
+Arquitetura vigente: `Supervisor Comercial -> Betel ERP -> HubSpot -> Outlook -> log no HubSpot`. GestaoClick nao integra este processo.
+
+- [x] conexoes Betel, HubSpot e Outlook validadas;
+- [x] criacao de proposta com verificacao posterior;
+- [x] criacao de Deal com bloqueio de duplicidade;
+- [x] modelos adaptaveis para nova proposta, proposta revisada e follow-up;
+- [x] aprovacao unica do pacote proposta + Deal + email;
+- [x] Outlook message ID obrigatorio no registro HubSpot;
+- [x] deteccao de registro repetido por Outlook message ID associado ao Deal;
+- [ ] teste real controlado do pacote completo;
+- [ ] reconciliacao automatica de `email_sent_log_pending`;
+- [ ] PDF da proposta como anexo opcional, mantendo o link Betel como referencia primaria.
+
 ## Fase 5 - Migracao de producao Railway -> Google Cloud Run
 Executar somente apos a conclusao do QA automatico e a estabilizacao das operacoes CRUD de propostas.
 

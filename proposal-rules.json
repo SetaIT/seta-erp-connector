@@ -82,7 +82,22 @@
     "sales_template_send_api_supported": false,
     "move_stage_only_after_confirmed_send": true,
     "salutation_single_recipient": "first_name",
-    "salutation_multiple_recipients": "neutral"
+    "salutation_multiple_recipients": "neutral",
+    "subject_pattern": "Proposta Comercial {numero_proposta} - {empresa} - {solucao}",
+    "templates": {
+      "nova_proposta": {
+        "single_recipient": "Olá, {primeiro_nome}.\n\nConforme solicitado, encaminhamos a Proposta Comercial {numero_proposta}, referente a {solucao}.\n\nA proposta completa está disponível no link abaixo:\n{link_proposta}\n\nPermanecemos à disposição para esclarecer dúvidas e ajustar a solução, caso necessário.\n\nAtenciosamente,\nSeta Telecom",
+        "multiple_recipients": "Olá.\n\nConforme solicitado, encaminhamos a Proposta Comercial {numero_proposta}, referente a {solucao}.\n\nA proposta completa está disponível no link abaixo:\n{link_proposta}\n\nPermanecemos à disposição para esclarecer dúvidas e ajustar a solução, caso necessário.\n\nAtenciosamente,\nSeta Telecom"
+      },
+      "proposta_revisada": {
+        "single_recipient": "Olá, {primeiro_nome}.\n\nEncaminhamos a versão revisada da Proposta Comercial {numero_proposta}, referente a {solucao}.\n\nA proposta atualizada está disponível no link abaixo:\n{link_proposta}\n\nPermanecemos à disposição.\n\nAtenciosamente,\nSeta Telecom",
+        "multiple_recipients": "Olá.\n\nEncaminhamos a versão revisada da Proposta Comercial {numero_proposta}, referente a {solucao}.\n\nA proposta atualizada está disponível no link abaixo:\n{link_proposta}\n\nPermanecemos à disposição.\n\nAtenciosamente,\nSeta Telecom"
+      },
+      "followup": {
+        "single_recipient": "Olá, {primeiro_nome}.\n\nGostaria de confirmar o recebimento da Proposta Comercial {numero_proposta}, referente a {solucao}, e verificar se podemos apoiar em algum esclarecimento ou ajuste.\n\nLink da proposta:\n{link_proposta}\n\nAtenciosamente,\nSeta Telecom",
+        "multiple_recipients": "Olá.\n\nGostaríamos de confirmar o recebimento da Proposta Comercial {numero_proposta}, referente a {solucao}, e verificar se podemos apoiar em algum esclarecimento ou ajuste.\n\nLink da proposta:\n{link_proposta}\n\nAtenciosamente,\nSeta Telecom"
+      }
+    }
   },
   "workflow": {
     "backend": "seta-erp-connector",
@@ -96,6 +111,9 @@
     "replace_existing_introduction_before_create": true,
     "require_explicit_confirmation_before_erp_write": true,
     "require_explicit_confirmation_before_hubspot_write": true,
+    "approval_policy": "single_commercial_package",
+    "single_approval_scope": ["create_erp_proposal", "create_hubspot_deal", "send_outlook_email", "register_hubspot_email", "move_deal_to_proposal_sent"],
+    "reapprove_if_payload_changes": true,
     "check_deal_duplicate_by_numero_da_proposta": true,
     "company_lookup_key_hubspot": "domain_then_name_candidates",
     "company_lookup_strategy": [
