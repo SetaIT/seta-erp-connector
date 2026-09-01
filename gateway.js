@@ -19,6 +19,10 @@ const INTERNAL_PORT = Number(process.env.INTERNAL_CONNECTOR_PORT || 3001);
 const CONNECTOR_API_KEY = process.env.CONNECTOR_API_KEY;
 const HUBSPOT_BASE_URL = process.env.HUBSPOT_BASE_URL || 'https://api.hubapi.com';
 const HUBSPOT_ACCESS_TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
+const MICROSOFT_TENANT_ID = process.env.MICROSOFT_TENANT_ID;
+const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
+const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
+const OUTLOOK_SENDER_EMAIL = String(process.env.OUTLOOK_SENDER_EMAIL || '').trim().toLowerCase();
 const PROPOSAL_PUBLIC_BASE_URL = String(process.env.PROPOSAL_PUBLIC_BASE_URL || 'https://app.setatelecom.com.br/prop').replace(/\/$/, '');
 
 function auth(req, res, next) {
@@ -89,6 +93,65 @@ async function hubspotRequest(path, { method = 'GET', body } = {}) {
   const err = new Error(`HubSpot API error ${response.status}`);
   err.status = response.status;
   err.source = 'hubspot';
+  err.data = data;
+  throw err;
+}
+
+async function microsoftAccessToken() {
+  const missing = [
+    !MICROSOFT_TENANT_ID && 'MICROSOFT_TENANT_ID',
+    !MICROSOFT_CLIENT_ID && 'MICROSOFT_CLIENT_ID',
+    !MICROSOFT_CLIENT_SECRET && 'MICROSOFT_CLIENT_SECRET',
+    !OUTLOOK_SENDER_EMAIL && 'OUTLOOK_SENDER_EMAIL'
+  ].filter(Boolean);
+  if (missing.length) {
+    const err = new Error('Microsoft 365 nao configurado');
+    err.status = 503;
+    err.source = 'microsoft';
+    err.data = { missing };
+    throw err;
+  }
+  const body = new URLSearchParams({
+    client_id: MICROSOFT_CLIENT_ID,
+    client_secret: MICROSOFT_CLIENT_SECRET,
+    scope: 'https://graph.microsoft.com/.default',
+    grant_type: 'client_credentials'
+  });
+  const response = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(MICROSOFT_TENANT_ID)}/oauth2/v2.0/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body
+  });
+  const data = await response.json().catch(() => ({}));
+  if (response.ok && data.access_token) return data.access_token;
+  const err = new Error('Falha ao autenticar no Microsoft 365');
+  err.status = response.status;
+  err.source = 'microsoft';
+  err.data = { error: data.error, error_description: data.error_description };
+  throw err;
+}
+
+async function sendOutlookMail({ to, subject, text, proposalLink }) {
+  const token = await microsoftAccessToken();
+  const recipients = to.map(address => ({ emailAddress: { address } }));
+  const linkBlock = proposalLink ? `\n\nAbrir proposta: ${proposalLink}` : '';
+  const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(OUTLOOK_SENDER_EMAIL)}/sendMail`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: {
+        subject,
+        body: { contentType: 'Text', content: `${text}${linkBlock}` },
+        toRecipients: recipients
+      },
+      saveToSentItems: true
+    })
+  });
+  if (response.ok) return { request_id: response.headers.get('request-id') || response.headers.get('client-request-id') || null };
+  const data = await response.json().catch(() => ({}));
+  const err = new Error(data?.error?.message || `Microsoft Graph error ${response.status}`);
+  err.status = response.status;
+  err.source = 'microsoft';
   err.data = data;
   throw err;
 }
@@ -510,6 +573,40 @@ app.get('/erp/propostas/:numero/contexto', auth, async (req, res) => {
         last_email: emails[0] || null
       },
       commercial: { next_action: recommendedAction(deal, emails, rules, dealLookupStatus, companyLookupStatus, companyCandidates), workflow: rules.workflow || null }
+    });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+app.post('/erp/email/enviar-proposta', auth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const rawRecipients = Array.isArray(body.destinatarios) ? body.destinatarios : [body.para || body.to].filter(Boolean);
+    const destinatarios = rawRecipients.map(value => typeof value === 'string' ? value : value?.email)
+      .map(value => String(value || '').trim().toLowerCase())
+      .filter(Boolean);
+    if (!destinatarios.length || destinatarios.some(email => !email.includes('@'))) {
+      throw requestError('Informe pelo menos um destinatario valido', { field: 'destinatarios' });
+    }
+    if (destinatarios.length > 10) throw requestError('destinatarios aceita no maximo 10 itens', { field: 'destinatarios' });
+    const assunto = String(body.assunto || body.subject || '').trim();
+    const texto = String(body.texto || body.body || '').trim();
+    const linkProposta = String(body.link_proposta || body.proposal_link || '').trim();
+    if (!assunto) throw requestError('assunto e obrigatorio', { field: 'assunto' });
+    if (!texto) throw requestError('texto e obrigatorio', { field: 'texto' });
+    if (!linkProposta || !/^https:\/\//i.test(linkProposta)) throw requestError('link_proposta HTTPS e obrigatorio', { field: 'link_proposta' });
+
+    const sent = await sendOutlookMail({ to: destinatarios, subject: assunto, text: texto, proposalLink: linkProposta });
+    res.status(201).json({
+      status: 'sent',
+      provider: 'microsoft_graph',
+      sender: OUTLOOK_SENDER_EMAIL,
+      recipients: destinatarios,
+      subject: assunto,
+      sent_at: new Date().toISOString(),
+      request_id: sent.request_id,
+      proposal_link: linkProposta
     });
   } catch (err) {
     handleError(err, res);
