@@ -664,14 +664,33 @@ app.post('/erp/hubspot/emails/registrar-envio', auth, async (req, res) => {
     const properties = { hs_timestamp: timestamp.toISOString(), hs_email_direction: 'EMAIL', hs_email_status: 'SENT', hs_email_subject: assunto, hs_email_text: texto, hs_email_headers: JSON.stringify(headers) };
     if (body.html) properties.hs_email_html = String(body.html);
     if (body.hubspot_owner_id) properties.hubspot_owner_id = String(body.hubspot_owner_id);
-    const email = await hubspotRequest('/crm/v3/objects/emails', { method: 'POST', body: { properties } });
+    const initialAssociations = [];
+    if (body.deal_id) initialAssociations.push({ to: { id: String(body.deal_id) }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 210 }] });
+    const email = await hubspotRequest('/crm/v3/objects/emails', {
+      method: 'POST',
+      body: { properties, ...(initialAssociations.length ? { associations: initialAssociations } : {}) }
+    });
 
     const associationResults = [];
     const associationFailures = [];
-    const targets = [body.deal_id ? { type: 'deals', id: body.deal_id } : null, body.company_id ? { type: 'companies', id: body.company_id } : null, ...(Array.isArray(body.contact_ids) ? body.contact_ids.map(id => ({ type: 'contacts', id })) : [])].filter(Boolean);
+    if (body.deal_id) associationResults.push({ type: 'deals', id: String(body.deal_id), mode: 'atomic_create' });
+    const targets = [body.company_id ? { type: 'companies', id: body.company_id } : null, ...(Array.isArray(body.contact_ids) ? body.contact_ids.map(id => ({ type: 'contacts', id })) : [])].filter(Boolean);
     for (const target of targets) {
       try { await associateEmail(email.id, target.type, target.id); associationResults.push(target); }
       catch (err) { associationFailures.push({ target, status: err.status || 500, details: err.data || err.message }); }
+    }
+
+    let dealAssociationVerified = !body.deal_id;
+    if (body.deal_id) {
+      const verification = await hubspotRequest(`/crm/v3/objects/emails/${encodeURIComponent(email.id)}?associations=deals`);
+      const associatedDealIds = verification?.associations?.deals?.results?.map(item => String(item.id)) || [];
+      dealAssociationVerified = associatedDealIds.includes(String(body.deal_id));
+      if (!dealAssociationVerified) {
+        await hubspotRequest(`/crm/v3/objects/emails/${encodeURIComponent(email.id)}/associations/deal/${encodeURIComponent(body.deal_id)}/210`, { method: 'PUT' });
+        const retry = await hubspotRequest(`/crm/v3/objects/emails/${encodeURIComponent(email.id)}?associations=deals`);
+        dealAssociationVerified = (retry?.associations?.deals?.results || []).some(item => String(item.id) === String(body.deal_id));
+      }
+      if (!dealAssociationVerified) throw new Error('HubSpot criou o e-mail, mas não confirmou a associação ao deal.');
     }
 
     let dealStageUpdate = null;
@@ -684,7 +703,7 @@ app.post('/erp/hubspot/emails/registrar-envio', auth, async (req, res) => {
       dealStageUpdate = await hubspotRequest(`/crm/v3/objects/deals/${encodeURIComponent(body.deal_id)}`, { method: 'PATCH', body: { properties: { dealstage: typeRule.hubspot_stage_proposta_enviada } } });
     }
 
-    res.status(201).json({ status: associationFailures.length ? 'partial_success' : 'success', email: { id: email.id, subject: assunto, status: 'SENT', direction: 'EMAIL', timestamp: timestamp.toISOString(), outlook_message_id: body.outlook_message_id || null }, associations: associationResults, association_failures: associationFailures, deal_stage_updated: Boolean(dealStageUpdate), deal: dealStageUpdate });
+    res.status(201).json({ status: associationFailures.length ? 'partial_success' : 'success', email: { id: email.id, subject: assunto, status: 'SENT', direction: 'EMAIL', timestamp: timestamp.toISOString(), outlook_message_id: body.outlook_message_id || null }, associations: associationResults, association_failures: associationFailures, deal_association_verified: dealAssociationVerified, deal_stage_updated: Boolean(dealStageUpdate), deal: dealStageUpdate });
   } catch (err) {
     handleError(err, res);
   }
