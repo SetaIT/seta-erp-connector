@@ -503,13 +503,14 @@ function buildProposalIntroduction(body) {
   const sla = typeRule.requires_sla ? requiredText(body.sla, 'sla') : String(body.sla || '').trim();
 
   let freightFormatted = '';
+  const informationalFreight = body.valor_frete_informativo ?? body.valor_frete;
   if (typeRule.requires_freight) {
-    if (body.valor_frete === undefined || body.valor_frete === null || String(body.valor_frete).trim() === '') {
+    if (informationalFreight === undefined || informationalFreight === null || String(informationalFreight).trim() === '') {
       throw requestError('valor_frete e obrigatorio para este tipo de proposta, inclusive quando for zero', { field: 'valor_frete' });
     }
-    freightFormatted = formatProposalMoney(parseMoney(body.valor_frete, 'valor_frete'), currency);
-  } else if (body.valor_frete !== undefined && body.valor_frete !== null && String(body.valor_frete).trim() !== '') {
-    freightFormatted = formatProposalMoney(parseMoney(body.valor_frete, 'valor_frete'), currency);
+    freightFormatted = formatProposalMoney(parseMoney(informationalFreight, 'valor_frete_informativo'), currency);
+  } else if (informationalFreight !== undefined && informationalFreight !== null && String(informationalFreight).trim() !== '') {
+    freightFormatted = formatProposalMoney(parseMoney(informationalFreight, 'valor_frete_informativo'), currency);
   }
 
   const variableBlock = String(pattern || typeRule.label)
@@ -807,6 +808,7 @@ app.post('/erp/orcamentos', async (req, res) => {
       moeda,
       prazo_entrega_dias,
       sla,
+      valor_frete_informativo,
       introducao: _introducaoExistente,
       ...betelBody
     } = req.body || {};
