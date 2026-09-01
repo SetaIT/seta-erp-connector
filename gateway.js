@@ -131,17 +131,16 @@ async function microsoftAccessToken() {
   throw err;
 }
 
-async function sendOutlookMail({ to, subject, text, proposalLink }) {
+async function sendOutlookMail({ to, subject, html }) {
   const token = await microsoftAccessToken();
   const recipients = to.map(address => ({ emailAddress: { address } }));
-  const linkBlock = proposalLink ? `\n\nAbrir proposta: ${proposalLink}` : '';
   const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(OUTLOOK_SENDER_EMAIL)}/sendMail`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message: {
         subject,
-        body: { contentType: 'Text', content: `${text}${linkBlock}` },
+        body: { contentType: 'HTML', content: html },
         toRecipients: recipients
       },
       saveToSentItems: true
@@ -154,6 +153,21 @@ async function sendOutlookMail({ to, subject, text, proposalLink }) {
   err.source = 'microsoft';
   err.data = data;
   throw err;
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+}
+
+function proposalEmailTemplate({ contactName, proposalTitle, proposalNumber, proposalLink, returnDate }) {
+  const greeting = contactName ? `Olá ${escapeHtml(contactName)}, tudo bem?` : 'Olá, tudo bem?';
+  const safeTitle = escapeHtml(proposalTitle || 'Sua Proposta Comercial');
+  const safeNumber = escapeHtml(proposalNumber);
+  const safeLink = escapeHtml(proposalLink);
+  const returnLine = returnDate ? `Agradeço desde já pelo retorno no dia ${escapeHtml(returnDate)}.` : 'Agradeço desde já pelo retorno.';
+  const text = `${proposalTitle || 'Sua Proposta Comercial'}\n\nN. ${proposalNumber}\n\n${contactName ? `Olá ${contactName}, tudo bem?` : 'Olá, tudo bem?'}\n\nObrigado pela oportunidade.\n\nAbaixo o link da proposta conforme solicitado.\n\nNúmero da Proposta: ${proposalNumber}\nLink da Proposta: ${proposalLink}\n\n${returnDate ? `Agradeço desde já pelo retorno no dia ${returnDate}.` : 'Agradeço desde já pelo retorno.'}\n\nConheça Nossos Serviços:\n- Soluções em Spare Part (Garantia Estendida)\n- Locação de Equipamentos de Rede\n- Locação de Notebooks\n- Locação de Servidores\n- Venda de Equipamentos Cisco Novos e Seminovos\n- Soluções de Videoconferência e Telefonia\n- Soluções de Backup na Nuvem\n- Cisco Smartnet\n\nQualquer dúvida estou à disposição!\n\nMarcéllo MMíra\nBusiness Consultant\nWhatsApp: +55 (11) 3958-4929\nsetatelecom.com.br`;
+  const html = `<!doctype html><html><body style="margin:0;background:#ffffff;color:#172033;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.55"><div style="max-width:700px;margin:0 auto;padding:24px"><img src="https://4369067.fs1.hubspotusercontent-na1.net/hubfs/4369067/azul-transparent-1.png" alt="Seta Telecom" style="display:block;max-width:220px;height:auto;margin:0 0 28px"><h1 style="font-size:24px;margin:0 0 4px">${safeTitle}</h1><h2 style="font-size:20px;margin:0 0 28px">N. ${safeNumber}</h2><p>${greeting}</p><p>Obrigado pela oportunidade.</p><p>Abaixo o link da proposta conforme solicitado.</p><p>Qualquer dúvida estou à disposição.</p><p><strong>Número da Proposta: ${safeNumber}</strong></p><p><strong>Link da Proposta: </strong><a href="${safeLink}" style="color:#0754a6;font-weight:700">${safeLink}</a></p><p>${returnLine} Se preferir, pode me ligar ou me chamar no <a href="https://api.whatsapp.com/send?phone=551139584929&text=Ol%C3%A1,%20em%20que%20posso%20ajudar?" style="color:#0754a6;font-weight:700">WhatsApp</a>.</p><p><strong>Conheça Nossos Serviços:</strong></p><p>👉 Soluções em Spare Part (Garantia Estendida)<br>👉 Locação de Equipamentos de Rede<br>👉 Locação de Notebooks<br>👉 Locação de Servidores<br>👉 Venda de Equipamentos Cisco Novos e Seminovos<br>👉 Soluções de Videoconferência e Telefonia<br>👉 Soluções de Backup na Nuvem<br>👉 Cisco Smartnet</p><p>Qualquer dúvida estou à disposição!</p><p>Att,</p><table role="presentation" style="margin-top:24px;border-collapse:collapse"><tr><td style="padding-right:18px;vertical-align:top"><img src="https://f.hubspotusercontent10.net/hubfs/4369067/azul-transparent.png" alt="Seta Telecom" style="display:block;max-width:145px;height:auto"></td><td style="border-left:3px solid #0754a6;padding-left:18px"><strong>Marcéllo MMíra</strong><br>Business Consultant<br><a href="https://api.whatsapp.com/send?phone=551139584929&text=Ol%C3%A1,%20em%20que%20posso%20ajudar?" style="color:#0754a6">WhatsApp</a><br>+55 (11) 3958-4929<br><a href="https://setatelecom.com.br/" style="color:#0754a6">setatelecom.com.br</a></td></tr></table><hr style="border:0;border-top:1px solid #d9dee7;margin:32px 0 20px"><p style="font-size:12px;color:#697386"><strong>Nota de Confidencialidade 1</strong><br>As informações contidas nesta proposta comercial ou e-mail são de caráter sigiloso, com intuito de evitar a divulgação a terceiros de qualquer informação trocada entre as partes que esteja diretamente relacionada ao serviço prestado ao cliente.</p><p style="font-size:12px;color:#697386"><strong>Nota de Confidencialidade 2</strong><br>Este termo de confidencialidade é firmado com o intuito de proibir a divulgação e utilização não autorizada das informações confidenciais trocadas entre as partes por ocasião da realização do serviço contratado pelo cliente, mediante proposta assinada pelo mesmo.</p></div></body></html>`;
+  return { html, text };
 }
 
 async function legacyRequest(path, { method = 'GET', body } = {}) {
@@ -591,13 +605,20 @@ app.post('/erp/email/enviar-proposta', auth, async (req, res) => {
     }
     if (destinatarios.length > 10) throw requestError('destinatarios aceita no maximo 10 itens', { field: 'destinatarios' });
     const assunto = String(body.assunto || body.subject || '').trim();
-    const texto = String(body.texto || body.body || '').trim();
     const linkProposta = String(body.link_proposta || body.proposal_link || '').trim();
+    const numeroProposta = String(body.numero_proposta || '').trim();
     if (!assunto) throw requestError('assunto e obrigatorio', { field: 'assunto' });
-    if (!texto) throw requestError('texto e obrigatorio', { field: 'texto' });
+    if (!numeroProposta) throw requestError('numero_proposta e obrigatorio', { field: 'numero_proposta' });
     if (!linkProposta || !/^https:\/\//i.test(linkProposta)) throw requestError('link_proposta HTTPS e obrigatorio', { field: 'link_proposta' });
 
-    const sent = await sendOutlookMail({ to: destinatarios, subject: assunto, text: texto, proposalLink: linkProposta });
+    const template = proposalEmailTemplate({
+      contactName: String(body.nome_contato || '').trim(),
+      proposalTitle: String(body.titulo_proposta || 'Sua Proposta Comercial').trim(),
+      proposalNumber: numeroProposta,
+      proposalLink: linkProposta,
+      returnDate: String(body.data_retorno || '').trim()
+    });
+    const sent = await sendOutlookMail({ to: destinatarios, subject: assunto, html: template.html });
     res.status(201).json({
       status: 'sent',
       provider: 'microsoft_graph',
@@ -606,7 +627,10 @@ app.post('/erp/email/enviar-proposta', auth, async (req, res) => {
       subject: assunto,
       sent_at: new Date().toISOString(),
       request_id: sent.request_id,
-      proposal_link: linkProposta
+      proposal_number: numeroProposta,
+      proposal_link: linkProposta,
+      rendered_html: template.html,
+      rendered_text: template.text
     });
   } catch (err) {
     handleError(err, res);
@@ -638,6 +662,7 @@ app.post('/erp/hubspot/emails/registrar-envio', auth, async (req, res) => {
     };
 
     const properties = { hs_timestamp: timestamp.toISOString(), hs_email_direction: 'EMAIL', hs_email_status: 'SENT', hs_email_subject: assunto, hs_email_text: texto, hs_email_headers: JSON.stringify(headers) };
+    if (body.html) properties.hs_email_html = String(body.html);
     if (body.hubspot_owner_id) properties.hubspot_owner_id = String(body.hubspot_owner_id);
     const email = await hubspotRequest('/crm/v3/objects/emails', { method: 'POST', body: { properties } });
 
