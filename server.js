@@ -803,6 +803,37 @@ app.put('/erp/orcamentos/:id', async (req, res) => {
     });
   } catch (err) { handleError(err, res); }
 });
+app.post('/erp/orcamentos/:id/clonar', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.confirmacao_clonagem !== true) throw requestError('confirmacao_clonagem deve ser true antes de criar uma nova proposta', { field: 'confirmacao_clonagem' });
+    const novoCodigo = String(body.codigo || '').trim();
+    if (!/^\d+$/.test(novoCodigo)) throw requestError('codigo da nova proposta deve ser numerico', { field: 'codigo' });
+    const originalResult = await betelRequest(`/orcamentos/${encodeURIComponent(req.params.id)}`);
+    const original = extractProposalData(originalResult);
+    if (!original) throw requestError('Nao foi possivel interpretar a proposta original', { id: req.params.id });
+    const cloneFields = [
+      'tipo', 'cliente_id', 'situacao_id', 'vendedor_id', 'validade', 'previsao_entrega', 'prazo_entrega',
+      'condicao_pagamento', 'forma_pagamento_id', 'data_primeira_parcela', 'numero_parcelas', 'intervalo_dias',
+      'pagamentos', 'produtos', 'servicos', 'desconto_valor', 'desconto_porcentagem', 'tipo_desconto',
+      'introducao', 'observacoes', 'observacoes_interna'
+    ];
+    const payload = Object.fromEntries(cloneFields.filter(field => Object.prototype.hasOwnProperty.call(original, field)).map(field => [field, original[field]]));
+    payload.tipo = payload.tipo || 'produto';
+    payload.codigo = Number(novoCodigo);
+    payload.data = body.data || new Date().toISOString().slice(0, 10);
+    payload.valor_frete = 0;
+    if (Object.prototype.hasOwnProperty.call(body, 'observacoes')) payload.observacoes = body.observacoes;
+    if (Object.prototype.hasOwnProperty.call(body, 'introducao')) payload.introducao = body.introducao;
+    const precheck = await verifyProposalWrite(novoCodigo, payload, req.correlationId);
+    if (precheck.outcome === 'found') throw requestError('Ja existe uma proposta com este codigo', { field: 'codigo', codigo: novoCodigo });
+    const reconciliation = await reconcileWrite({ operation: 'clone_proposal', endpoint: '/orcamentos', correlationId: req.correlationId, payload,
+      write: () => betelRequest('/orcamentos', { method: 'POST', body: payload, correlationId: req.correlationId, operation: 'clone_proposal', observe: true }),
+      verify: () => verifyProposalWrite(novoCodigo, payload, req.correlationId) });
+    const success = [EFFECTIVE_STATUS.SUCCESS, EFFECTIVE_STATUS.SUCCESS_RECOVERED].includes(reconciliation.effective_status);
+    res.status(200).json({ status: success ? 'success' : 'error', action: 'proposal_cloned', proposta_origem: { id: String(req.params.id), codigo: original.codigo || null }, codigo_nova_proposta: novoCodigo, ...reconciliation });
+  } catch (err) { handleError(err, res); }
+});
 app.post('/erp/orcamentos', async (req, res) => {
   try {
     const correlationId = req.correlationId;
