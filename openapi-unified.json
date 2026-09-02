@@ -136,6 +136,12 @@
               "observacoes": {"type": "string"},
               "observacoes_interna": {"type": "string"},
               "valor_frete": {"type": "number"},
+              "condicao_pagamento": {"type": "string", "description": "Condição escolhida no módulo de pagamentos do ERP."},
+              "forma_pagamento_id": {"type": "string", "description": "ID retornado por buscarFormasPagamentos."},
+              "data_primeira_parcela": {"type": "string", "format": "date", "description": "Primeiro vencimento."},
+              "numero_parcelas": {"type": "integer", "minimum": 1},
+              "intervalo_dias": {"type": "integer", "minimum": 0},
+              "pagamentos": {"type": "array", "description": "Grade de parcelas no formato retornado/aceito pelo ERP. O conector transmite a estrutura sem conversão."},
               "desconto_valor": {"type": "string"},
               "desconto_porcentagem": {"type": "string"},
               "produtos": {
@@ -155,6 +161,18 @@
           }}}
         },
         "responses": {"200": {"description": "Proposta criada"}, "400": {"description": "Dados ou regra comercial invalidos"}}
+      }
+    },
+    "/erp/formas-pagamentos": {
+      "get": {
+        "operationId": "buscarFormasPagamentos",
+        "summary": "Lista as formas de pagamento cadastradas no ERP",
+        "description": "Use esta rota para preencher o mesmo seletor de forma de pagamento do ERP; não use valores fixos no app.",
+        "parameters": [
+          {"name": "pagina", "in": "query", "schema": {"type": "integer", "default": 1}},
+          {"name": "nome", "in": "query", "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "Formas de pagamento retornadas pelo ERP"}}
       }
     },
     "/erp/orcamentos/{id}": {
