@@ -435,6 +435,12 @@ const EDITABLE_PROPOSAL_FIELDS = [
   'previsao_entrega',
   'prazo_entrega',
   'valor_frete',
+  'condicao_pagamento',
+  'forma_pagamento_id',
+  'data_primeira_parcela',
+  'numero_parcelas',
+  'intervalo_dias',
+  'pagamentos',
   'introducao',
   'observacoes',
   'observacoes_interna'
