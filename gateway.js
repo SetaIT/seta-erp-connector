@@ -205,12 +205,44 @@ async function legacyRequest(path, { method = 'GET', body } = {}) {
 
 function normalizeRecipient(value, index) {
   const email = String(value?.email || '').trim().toLowerCase();
-  if (!email || !email.includes('@')) throw requestError(`destinatarios[${index}].email invalido`, { field: `destinatarios[${index}].email` });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw requestError(`destinatarios[${index}].email invalido`, { field: `destinatarios[${index}].email` });
   return {
     email,
     firstName: String(value?.firstName || value?.firstname || value?.nome || '').trim(),
-    lastName: String(value?.lastName || value?.lastname || value?.sobrenome || '').trim()
+    lastName: String(value?.lastName || value?.lastname || value?.sobrenome || '').trim(),
+    contactId: value?.contact_id || value?.contactId ? String(value.contact_id || value.contactId) : null
   };
+}
+
+function publicContact(contact) {
+  const properties = contact?.properties || {};
+  return {
+    id: contact?.id ? String(contact.id) : null,
+    email: String(properties.email || '').trim().toLowerCase() || null,
+    firstName: String(properties.firstname || '').trim(),
+    lastName: String(properties.lastname || '').trim(),
+    phone: String(properties.mobilephone || properties.phone || '').trim() || null,
+    company: String(properties.company || '').trim() || null
+  };
+}
+
+function hubspotScopeError(err, operation) {
+  if (err?.source !== 'hubspot' || err?.status !== 403 || err?.data?.category !== 'MISSING_SCOPES') return err;
+  const missingScopes = err.data?.missingScopes || err.data?.missing_scopes || err.data?.context?.missingScopes || null;
+  const requiredScopes = operation === 'update_contact_email'
+    ? ['crm.objects.contacts.write']
+    : (Array.isArray(missingScopes) ? missingScopes : null);
+  const wrapped = new Error('A conexao HubSpot nao possui as permissoes necessarias para esta operacao. O e-mail foi enviado pelo Outlook, mas nao foi registrado no HubSpot.');
+  wrapped.status = 503;
+  wrapped.source = 'hubspot';
+  wrapped.data = {
+    code: 'HUBSPOT_MISSING_SCOPES',
+    operation,
+    required_scopes: requiredScopes,
+    remediation: 'Atualize as permissoes indicadas pelo HubSpot no Private App e reconecte o HUBSPOT_ACCESS_TOKEN. Nenhum contato foi alterado.',
+    hubspot: err.data
+  };
+  return wrapped;
 }
 
 function normalizeOptionalRecipients(values, fieldName) {
@@ -600,18 +632,35 @@ app.get('/erp/hubspot/contatos/pesquisar', auth, async (req, res) => {
     const q = String(req.query.q || '').trim();
     if (q.length < 2) throw requestError('q deve conter ao menos 2 caracteres', { field: 'q' });
     const result = await hubspotRequest('/crm/v3/objects/contacts/search', { method: 'POST', body: { query: q, limit: 20, properties: ['firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company'] } });
-    res.json({ results: result?.results || [] });
+    res.json({ results: (result?.results || []).map(publicContact) });
   } catch (err) { handleError(err, res); }
+});
+
+// This endpoint makes an intentional CRM edit. A recipient may always be edited for
+// a single send through /erp/email/enviar-proposta without calling this route.
+app.patch('/erp/hubspot/contatos/:id/email', auth, async (req, res) => {
+  try {
+    const contactId = String(req.params.id || '').trim();
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!contactId) throw requestError('id do contato e obrigatorio', { field: 'id' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw requestError('email invalido', { field: 'email' });
+    if (req.body?.confirmar_atualizacao !== true) {
+      throw requestError('confirmar_atualizacao deve ser true para alterar o e-mail no HubSpot', { field: 'confirmar_atualizacao' });
+    }
+    const updated = await hubspotRequest(`/crm/v3/objects/contacts/${encodeURIComponent(contactId)}`, {
+      method: 'PATCH', body: { properties: { email } }
+    });
+    res.json({ status: 'updated', contact: publicContact(updated), updated_fields: ['email'] });
+  } catch (err) { handleError(hubspotScopeError(err, 'update_contact_email'), res); }
 });
 
 app.post('/erp/email/enviar-proposta', auth, async (req, res) => {
   try {
     const body = req.body || {};
     const rawRecipients = Array.isArray(body.destinatarios) ? body.destinatarios : [body.para || body.to].filter(Boolean);
-    const destinatarios = rawRecipients.map(value => typeof value === 'string' ? value : value?.email)
-      .map(value => String(value || '').trim().toLowerCase())
-      .filter(Boolean);
-    if (!destinatarios.length || destinatarios.some(email => !email.includes('@'))) {
+    const recipientObjects = rawRecipients.map((value, index) => normalizeRecipient(typeof value === 'string' ? { email: value } : value, index));
+    const destinatarios = [...new Set(recipientObjects.map(item => item.email))];
+    if (!destinatarios.length) {
       throw requestError('Informe pelo menos um destinatario valido', { field: 'destinatarios' });
     }
     if (destinatarios.length > 10) throw requestError('destinatarios aceita no maximo 10 itens', { field: 'destinatarios' });
@@ -636,6 +685,7 @@ app.post('/erp/email/enviar-proposta', auth, async (req, res) => {
       provider: 'microsoft_graph',
       sender: OUTLOOK_SENDER_EMAIL,
       recipients: destinatarios,
+      recipients_detail: recipientObjects.map(item => ({ ...item, contact_id: item.contactId || null })),
       subject: assunto,
       sent_at: new Date().toISOString(),
       request_id: sent.request_id,
@@ -717,7 +767,7 @@ app.post('/erp/hubspot/emails/registrar-envio', auth, async (req, res) => {
 
     res.status(201).json({ status: associationFailures.length ? 'partial_success' : 'success', email: { id: email.id, subject: assunto, status: 'SENT', direction: 'EMAIL', timestamp: timestamp.toISOString(), outlook_message_id: body.outlook_message_id || null }, associations: associationResults, association_failures: associationFailures, deal_association_verified: dealAssociationVerified, deal_stage_updated: Boolean(dealStageUpdate), deal: dealStageUpdate });
   } catch (err) {
-    handleError(err, res);
+    handleError(hubspotScopeError(err, 'register_sent_email'), res);
   }
 });
 
