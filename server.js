@@ -216,13 +216,20 @@ function parseMoney(value, fieldName) {
   return parsed;
 }
 
-function proposalTotal(products) {
-  if (!Array.isArray(products) || products.length === 0) throw requestError('produtos deve conter pelo menos um item', { field: 'produtos' });
-  return products.reduce((total, item, index) => {
-    const product = item?.produto || {};
-    const quantity = parseMoney(product.quantidade ?? 1, `produtos[${index}].produto.quantidade`);
-    const unitPrice = parseMoney(product.valor_venda, `produtos[${index}].produto.valor_venda`);
-    return total + quantity * unitPrice;
+function proposalTotal(products, services) {
+  const isProduct = Array.isArray(products) && products.length > 0;
+  const lines = isProduct ? products : services;
+  const lineName = isProduct ? 'produtos' : 'servicos';
+  const entryName = isProduct ? 'produto' : 'servico';
+  if (!Array.isArray(lines) || lines.length === 0) {
+    throw requestError('produtos ou servicos deve conter pelo menos um item', { field: 'produtos|servicos' });
+  }
+  return lines.reduce((total, item, index) => {
+    const entry = item?.[entryName] || {};
+    const quantity = parseMoney(entry.quantidade ?? 1, `${lineName}[${index}].${entryName}.quantidade`);
+    const unitPrice = parseMoney(entry.valor_venda ?? entry.valor, `${lineName}[${index}].${entryName}.valor_venda`);
+    const discount = parseMoney(entry.desconto ?? item?.desconto ?? 0, `${lineName}[${index}].${entryName}.desconto`);
+    return total + quantity * unitPrice * (1 - discount / 100);
   }, 0);
 }
 
@@ -490,7 +497,7 @@ function buildProposalIntroduction(body) {
   const currency = String(body.moeda || rules.currency_default || 'BRL').trim().toUpperCase();
   if (!['BRL', 'USD'].includes(currency)) throw requestError('moeda invalida', { field: 'moeda', allowed: ['BRL', 'USD'] });
 
-  const total = proposalTotal(body.produtos);
+  const total = proposalTotal(body.produtos, body.servicos);
   const formattedValue = formatProposalMoney(total, currency);
   const pattern = typeKey === 'compra'
     ? (currency === 'USD' ? typeRule.introduction_pattern_usd : typeRule.introduction_pattern_brl)
