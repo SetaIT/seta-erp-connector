@@ -8,7 +8,7 @@
   },
   "scripts": {
     "postinstall": "node scripts/write-deployment-build.mjs",
-    "start": "node --import ./deployment-diagnostics-preload.js --import ./action-probe-preload.js --import ./read-diagnostics-preload.js --import ./edit-diagnostics-preload.js --import ./number-write-preload.js --import ./clone-by-number-preload.js --import ./product-write-preload.js --import ./read-resilient-preload.js --import ./hubspot-deal-normalization-preload.js --import ./hubspot-deal-delete-preload.js gateway.js",
+    "start": "node --import ./deployment-diagnostics-preload.js --import ./action-probe-preload.js --import ./read-diagnostics-preload.js --import ./edit-diagnostics-preload.js --import ./number-write-preload.js --import ./clone-by-number-preload.js --import ./full-proposal-edit-preload.js --import ./product-write-preload.js --import ./read-resilient-preload.js --import ./hubspot-deal-normalization-preload.js --import ./hubspot-deal-delete-preload.js gateway.js",
     "test": "node --test test/*.test.mjs",
     "qa": "node scripts/qa.mjs",
     "qa:smoke": "node scripts/smoke.mjs",
