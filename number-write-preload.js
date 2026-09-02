@@ -18,6 +18,12 @@ const EDITABLE_FIELDS = [
   'previsao_entrega',
   'prazo_entrega',
   'valor_frete',
+  'condicao_pagamento',
+  'forma_pagamento_id',
+  'data_primeira_parcela',
+  'numero_parcelas',
+  'intervalo_dias',
+  'pagamentos',
   'introducao',
   'observacoes',
   'observacoes_interna'
@@ -199,6 +205,9 @@ function buildEditPayload(current, body) {
   if (Object.prototype.hasOwnProperty.call(changes, 'data')) changes.data = parseDateToIso(changes.data, 'data');
   if (Object.prototype.hasOwnProperty.call(changes, 'previsao_entrega') && changes.previsao_entrega !== null) {
     changes.previsao_entrega = parseDateToIso(changes.previsao_entrega, 'previsao_entrega');
+  }
+  if (Object.prototype.hasOwnProperty.call(changes, 'data_primeira_parcela') && changes.data_primeira_parcela !== null) {
+    changes.data_primeira_parcela = parseDateToIso(changes.data_primeira_parcela, 'data_primeira_parcela');
   }
 
   const preserved = {};
