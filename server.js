@@ -448,6 +448,13 @@ const EDITABLE_PROPOSAL_FIELDS = [
   'numero_parcelas',
   'intervalo_dias',
   'pagamentos',
+  'produtos',
+  'servicos',
+  'desconto_valor',
+  'desconto_porcentagem',
+  'tipo_desconto',
+  'transportadora_id',
+  'endereco_entrega',
   'introducao',
   'observacoes',
   'observacoes_interna'
