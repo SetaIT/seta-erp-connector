@@ -460,6 +460,20 @@ const EDITABLE_PROPOSAL_FIELDS = [
   'observacoes_interna'
 ];
 
+// Betel revalidates a full commercial record on PUT. Preserve the fields it
+// already returned instead of accidentally clearing products, installments or
+// delivery data when the operator changes just one field.
+const PRESERVED_PROPOSAL_FIELDS = [
+  'nome_cliente', 'vendedor_id', 'nome_vendedor', 'tecnico_id', 'nome_tecnico',
+  'previsao_entrega', 'nome_situacao', 'valor_total', 'nome_transportadora',
+  'transportadora_id', 'centro_custo_id', 'aos_cuidados_de', 'validade',
+  'introducao', 'observacoes', 'observacoes_interna', 'nome_canal_venda',
+  'nome_loja', 'valor_frete', 'desconto_valor', 'desconto_porcentagem',
+  'tipo_desconto', 'condicao_pagamento', 'forma_pagamento_id',
+  'data_primeira_parcela', 'numero_parcelas', 'intervalo_dias', 'pagamentos',
+  'produtos', 'servicos', 'endereco_entrega'
+];
+
 function currentProposalRequiredField(current, field) {
   const value = current?.[field];
   if (value !== undefined && value !== null && String(value).trim() !== '') return value;
@@ -478,16 +492,26 @@ function buildProposalEditPayload(current, body) {
 
   if (Object.prototype.hasOwnProperty.call(changes, 'data')) parseIsoDate(changes.data, 'data');
 
+  const preserved = Object.fromEntries(PRESERVED_PROPOSAL_FIELDS
+    .filter(field => Object.prototype.hasOwnProperty.call(current || {}, field))
+    .map(field => [field, current[field]]));
   const payload = {
-    tipo: currentProposalRequiredField(current, 'tipo'),
-    codigo: currentProposalRequiredField(current, 'codigo'),
-    cliente_id: currentProposalRequiredField(current, 'cliente_id'),
-    situacao_id: currentProposalRequiredField(current, 'situacao_id'),
-    data: currentProposalRequiredField(current, 'data'),
-    ...changes
+    tipo: currentProposalRequiredField(current, 'tipo'), codigo: currentProposalRequiredField(current, 'codigo'),
+    cliente_id: currentProposalRequiredField(current, 'cliente_id'), situacao_id: currentProposalRequiredField(current, 'situacao_id'),
+    data: currentProposalRequiredField(current, 'data'), ...preserved, ...changes
   };
+  return { payload, changes, preservedFields: Object.keys(preserved) };
+}
 
-  return { payload, changes };
+function comparableProposalValue(value) {
+  if (Array.isArray(value)) return value.map(comparableProposalValue);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, comparableProposalValue(item)]));
+  if (value === null || value === undefined) return value;
+  const text = String(value).trim();
+  const numeric = Number(text.replace(',', '.'));
+  return Number.isFinite(numeric) ? String(numeric) : text;
+}
+function proposalValuesMatch(expected, actual) { return JSON.stringify(comparableProposalValue(expected)) === JSON.stringify(comparableProposalValue(actual));
 }
 
 function buildProposalIntroduction(body) {
@@ -797,20 +821,27 @@ app.put('/erp/orcamentos/:id', async (req, res) => {
     const current = extractProposalData(currentResult);
     if (!current) throw requestError('Nao foi possivel interpretar a proposta atual antes da edicao', { id: req.params.id });
 
-    const { payload, changes } = buildProposalEditPayload(current, req.body || {});
+    const { payload, changes, preservedFields } = buildProposalEditPayload(current, req.body || {});
     const updateResult = await betelRequest(`/orcamentos/${id}`, { method: 'PUT', body: payload });
     const refreshedResult = await betelRequest(`/orcamentos/${id}`);
     const refreshed = extractProposalData(refreshedResult);
     const publicLink = await resolvePublicProposalLink(refreshedResult);
 
+    const after = Object.fromEntries(Object.keys(changes).map(field => [field, refreshed?.[field] ?? null]));
+    const requestedChangesMatched = Object.entries(changes).every(([field, value]) => proposalValuesMatch(value, after[field]));
     res.json({
-      status: 'success',
+      status: requestedChangesMatched ? 'success' : 'success_with_verification_warning',
       action: 'proposal_updated',
+      write_attempted: true,
+      write_succeeded: true,
+      verification_succeeded: true,
+      requested_changes_matched: requestedChangesMatched,
       id: String(req.params.id),
       codigo: refreshed?.codigo ?? current?.codigo ?? null,
       changes_requested: changes,
+      preserved_fields_sent: preservedFields,
       before: Object.fromEntries(Object.keys(changes).map(field => [field, current?.[field] ?? null])),
-      after: Object.fromEntries(Object.keys(changes).map(field => [field, refreshed?.[field] ?? null])),
+      after,
       proposal: updateResult,
       verification: refreshedResult,
       ...publicLink

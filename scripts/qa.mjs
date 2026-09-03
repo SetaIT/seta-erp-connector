@@ -105,6 +105,14 @@ if (action) {
   }
 }
 
+try {
+  const startScript = JSON.parse(fs.readFileSync('package.json', 'utf8'))?.scripts?.start || '';
+  assert(!startScript.includes('./edit-diagnostics-preload.js'), 'start: edit-diagnostics-preload nao pode sobrescrever a rota canonica de edicao');
+  assert(!startScript.includes('./full-proposal-edit-preload.js'), 'start: full-proposal-edit-preload nao pode sobrescrever a rota canonica de edicao');
+} catch (err) {
+  fail(`package.json: nao foi possivel validar preloads de edicao - ${err.message}`);
+}
+
 for (const file of ['gateway.js','server.js','commercial-write-reconciliation.js','deployment-diagnostics-preload.js','read-diagnostics-preload.js','read-resilient-preload.js','edit-diagnostics-preload.js','number-write-preload.js','scripts/write-deployment-build.mjs']) {
   try { execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' }); }
   catch (err) { fail(`${file}: falha de sintaxe JavaScript - ${String(err.stderr || err.message).trim()}`); }
