@@ -798,7 +798,16 @@ app.put('/erp/orcamentos/:id', async (req, res) => {
     if (!current) throw requestError('Nao foi possivel interpretar a proposta atual antes da edicao', { id: req.params.id });
 
     const { payload, changes } = buildProposalEditPayload(current, req.body || {});
-    const updateResult = await betelRequest(`/orcamentos/${id}`, { method: 'PUT', body: payload });
+    let updateResult;
+    let updateEndpoint = `/orcamentos/${id}`;
+    try {
+      updateResult = await betelRequest(updateEndpoint, { method: 'PUT', body: payload });
+    } catch (err) {
+      const proposalNumber = current?.codigo;
+      if (err?.status !== 404 || proposalNumber === undefined || proposalNumber === null) throw err;
+      updateEndpoint = `/orcamentos/numero/${encodeURIComponent(String(proposalNumber))}`;
+      updateResult = await betelRequest(updateEndpoint, { method: 'PUT', body: payload });
+    }
     const refreshedResult = await betelRequest(`/orcamentos/${id}`);
     const refreshed = extractProposalData(refreshedResult);
     const publicLink = await resolvePublicProposalLink(refreshedResult);
