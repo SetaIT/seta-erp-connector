@@ -616,6 +616,13 @@ async function hubspotSearch(objectType, propertyName, value, properties = [], c
     ...context,
   });
 }
+async function hubspotSearchByQuery(objectType, query, properties = [], context = {}) {
+  return hubspotRequest(`/crm/v3/objects/${objectType}/search`, {
+    method: 'POST',
+    body: { query: String(query || '').trim(), properties, limit: 10 },
+    ...context,
+  });
+}
 async function hubspotCreate(objectType, properties, context = {}) {
   return hubspotRequest(`/crm/v3/objects/${objectType}`, { method: 'POST', body: { properties }, ...context });
 }
@@ -630,27 +637,26 @@ async function hubspotGet(objectType, objectId, properties = [], context = {}) {
   return hubspotRequest(`/crm/v3/objects/${objectType}/${encodeURIComponent(objectId)}${qs}`, context);
 }
 
-async function findOrCreateCompany({ empresa, domain }, correlationId) {
+async function findOrCreateCompany({ empresa, domain, company_id, criar_empresa }, correlationId) {
   const context = { correlationId, operation: 'ensure_hubspot_company' };
-  const search = await hubspotSearch('companies', 'domain', domain, ['name', 'domain', 'hubspot_owner_id'], context);
-  if (search.total > 0) return { record: search.results[0], created: false };
+  const properties = ['name', 'domain', 'hubspot_owner_id'];
+  if (company_id) return { record: await hubspotGet('companies', company_id, properties, context), created: false, selected: true };
+  if (domain) {
+    const search = await hubspotSearch('companies', 'domain', domain, properties, context);
+    if (search.total > 0) return { record: search.results[0], created: false };
+  }
+  const byName = await hubspotSearchByQuery('companies', empresa, properties, context);
+  if (byName.total === 1) return { record: byName.results[0], created: false, matched_by: 'name' };
+  if (!criar_empresa) {
+    throw requestError('Selecione uma empresa existente do CRM ou habilite a criação de uma nova empresa.', {
+      field: 'company_id|criar_empresa',
+      candidates: byName.results || [],
+    });
+  }
   try {
-    const record = await hubspotCreate('companies', { name: empresa, domain }, context);
-    const verification = await hubspotSearch('companies', 'domain', domain, ['name', 'domain'], context);
-    return { record, created: true, verification: verification.total > 0 ? 'found' : 'eventual_consistency' };
+    const record = await hubspotCreate('companies', { name: empresa, ...(domain ? { domain } : {}) }, context);
+    return { record, created: true, verification: 'created' };
   } catch (error) {
-    try {
-      const verification = await hubspotSearch('companies', 'domain', domain, ['name', 'domain'], context);
-      if (verification.total > 0) {
-        return { record: verification.results[0], created: true, recovered_after_error: true, verification: 'found' };
-      }
-    } catch (verificationError) {
-      error.verification_error = {
-        message: verificationError instanceof Error ? verificationError.message : 'company_verification_failed',
-        status: verificationError?.status ?? null,
-        data: sanitizePayload(verificationError?.data ?? null),
-      };
-    }
     error.taxonomy = ERROR_TAXONOMY.WRITE_UNCERTAIN;
     throw error;
   }
@@ -959,8 +965,12 @@ app.get('/erp/hubspot/configuracao-proposta', (req, res) => {
 });
 app.get('/erp/hubspot/empresas', async (req, res) => {
   try {
-    if (!req.query.domain) throw requestError('domain e obrigatorio', { field: 'domain' });
-    res.json(await hubspotSearch('companies', 'domain', req.query.domain, ['name', 'domain', 'hubspot_owner_id']));
+    const domain = String(req.query.domain || '').trim();
+    const q = String(req.query.q || '').trim();
+    if (!domain && q.length < 2) throw requestError('Informe domain ou ao menos 2 caracteres do nome da empresa', { field: 'domain|q' });
+    res.json(domain
+      ? await hubspotSearch('companies', 'domain', domain, ['name', 'domain', 'hubspot_owner_id'])
+      : await hubspotSearchByQuery('companies', q, ['name', 'domain', 'hubspot_owner_id']));
   } catch (err) { handleError(err, res); }
 });
 app.get('/erp/hubspot/empresas/:id/contatos', async (req, res) => {
@@ -1000,7 +1010,6 @@ app.post('/erp/hubspot/negocios-da-proposta', async (req, res) => {
 
     if (!numero) throw requestError('numero_proposta e obrigatorio', { field: 'numero_proposta' });
     if (!empresa) throw requestError('empresa e obrigatoria', { field: 'empresa' });
-    if (!domain) throw requestError('domain e obrigatorio para localizar/criar a empresa no HubSpot', { field: 'domain' });
     if (!solucaoComercial) throw requestError('solucao e obrigatoria', { field: 'solucao' });
     if (!link) throw requestError('link_proposta e obrigatorio antes de criar o Deal', { field: 'link_proposta' });
     if (!['BRL', 'USD'].includes(currency)) throw requestError('moeda invalida', { field: 'moeda', allowed: ['BRL', 'USD'] });
@@ -1047,7 +1056,7 @@ app.post('/erp/hubspot/negocios-da-proposta', async (req, res) => {
       });
     }
 
-    const companyResult = await findOrCreateCompany({ empresa, domain }, correlationId);
+    const companyResult = await findOrCreateCompany({ empresa, domain, company_id: body.company_id, criar_empresa: body.criar_empresa === true }, correlationId);
     const selectedContacts = normalizeContacts(body);
     const contacts = await findOrCreateContacts(selectedContacts, companyResult.record.id, correlationId);
 
