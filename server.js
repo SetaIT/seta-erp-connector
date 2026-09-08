@@ -623,6 +623,24 @@ async function hubspotSearchByQuery(objectType, query, properties = [], context 
     ...context,
   });
 }
+function companySearchTerms(value) {
+  const normalized = normalizeText(value).replace(/[^a-z0-9\s.-]/g, ' ').replace(/\s+/g, ' ').trim();
+  const ignored = new Set(['brasil', 'brazil', 'industria', 'industrial', 'comercio', 'comercial', 'servicos', 'servico', 'tecnologia', 'ltda', 'sa', 's/a', 'e', 'de', 'da', 'do', 'das', 'dos']);
+  const meaningful = normalized.split(' ').filter((term) => term.length >= 3 && !ignored.has(term));
+  return [...new Set([normalized, meaningful.join(' '), ...meaningful].filter((term) => term.length >= 2))].slice(0, 5);
+}
+async function hubspotCompanyCandidates(empresa, properties = [], context = {}) {
+  const found = new Map();
+  for (const term of companySearchTerms(empresa)) {
+    const result = await hubspotRequest('/crm/v3/objects/companies/search', {
+      method: 'POST',
+      body: { filterGroups: [{ filters: [{ propertyName: 'name', operator: 'CONTAINS_TOKEN', value: term }] }], properties, limit: 20 },
+      ...context,
+    });
+    for (const item of result?.results || []) found.set(String(item.id), item);
+  }
+  return [...found.values()];
+}
 async function hubspotCreate(objectType, properties, context = {}) {
   return hubspotRequest(`/crm/v3/objects/${objectType}`, { method: 'POST', body: { properties }, ...context });
 }
@@ -645,12 +663,12 @@ async function findOrCreateCompany({ empresa, domain, company_id, criar_empresa 
     const search = await hubspotSearch('companies', 'domain', domain, properties, context);
     if (search.total > 0) return { record: search.results[0], created: false };
   }
-  const byName = await hubspotSearchByQuery('companies', empresa, properties, context);
-  if (byName.total === 1) return { record: byName.results[0], created: false, matched_by: 'name' };
+  const candidates = await hubspotCompanyCandidates(empresa, properties, context);
+  if (candidates.length === 1) return { record: candidates[0], created: false, matched_by: 'name' };
   if (!criar_empresa) {
     throw requestError('Selecione uma empresa existente do CRM ou habilite a criação de uma nova empresa.', {
       field: 'company_id|criar_empresa',
-      candidates: byName.results || [],
+      candidates,
     });
   }
   try {
@@ -970,7 +988,7 @@ app.get('/erp/hubspot/empresas', async (req, res) => {
     if (!domain && q.length < 2) throw requestError('Informe domain ou ao menos 2 caracteres do nome da empresa', { field: 'domain|q' });
     res.json(domain
       ? await hubspotSearch('companies', 'domain', domain, ['name', 'domain', 'hubspot_owner_id'])
-      : await hubspotSearchByQuery('companies', q, ['name', 'domain', 'hubspot_owner_id']));
+      : { results: await hubspotCompanyCandidates(q, ['name', 'domain', 'hubspot_owner_id']) });
   } catch (err) { handleError(err, res); }
 });
 app.get('/erp/hubspot/empresas/:id/contatos', async (req, res) => {
