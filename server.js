@@ -216,20 +216,13 @@ function parseMoney(value, fieldName) {
   return parsed;
 }
 
-function proposalTotal(products, services) {
-  const isProduct = Array.isArray(products) && products.length > 0;
-  const lines = isProduct ? products : services;
-  const lineName = isProduct ? 'produtos' : 'servicos';
-  const entryName = isProduct ? 'produto' : 'servico';
-  if (!Array.isArray(lines) || lines.length === 0) {
-    throw requestError('produtos ou servicos deve conter pelo menos um item', { field: 'produtos|servicos' });
-  }
-  return lines.reduce((total, item, index) => {
-    const entry = item?.[entryName] || {};
-    const quantity = parseMoney(entry.quantidade ?? 1, `${lineName}[${index}].${entryName}.quantidade`);
-    const unitPrice = parseMoney(entry.valor_venda ?? entry.valor, `${lineName}[${index}].${entryName}.valor_venda`);
-    const discount = parseMoney(entry.desconto ?? item?.desconto ?? 0, `${lineName}[${index}].${entryName}.desconto`);
-    return total + quantity * unitPrice * (1 - discount / 100);
+function proposalTotal(products) {
+  if (!Array.isArray(products) || products.length === 0) throw requestError('produtos deve conter pelo menos um item', { field: 'produtos' });
+  return products.reduce((total, item, index) => {
+    const product = item?.produto || {};
+    const quantity = parseMoney(product.quantidade ?? 1, `produtos[${index}].produto.quantidade`);
+    const unitPrice = parseMoney(product.valor_venda, `produtos[${index}].produto.valor_venda`);
+    return total + quantity * unitPrice;
   }, 0);
 }
 
@@ -442,22 +435,21 @@ const EDITABLE_PROPOSAL_FIELDS = [
   'previsao_entrega',
   'prazo_entrega',
   'valor_frete',
+  'valor_frete_informativo',
+  'introducao',
+  'observacoes',
+  'observacoes_interna',
+  'transportadora',
+  'endereco_entrega',
+  'exibir_pagamento',
   'condicao_pagamento',
   'forma_pagamento_id',
-  'data_primeira_parcela',
   'numero_parcelas',
+  'data_primeira_parcela',
   'intervalo_dias',
   'pagamentos',
   'produtos',
-  'servicos',
-  'desconto_valor',
-  'desconto_porcentagem',
-  'tipo_desconto',
-  'transportadora_id',
-  'endereco_entrega',
-  'introducao',
-  'observacoes',
-  'observacoes_interna'
+  'servicos'
 ];
 
 function currentProposalRequiredField(current, field) {
@@ -490,6 +482,53 @@ function buildProposalEditPayload(current, body) {
   return { payload, changes };
 }
 
+function collectionForVerification(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function proposalItemForVerification(entry) {
+  if (!entry || typeof entry !== 'object') return {};
+  return entry.produto || entry.servico || entry;
+}
+
+function verifyProposalEdit(current, changes) {
+  const mismatches = [];
+  const compare = (field, actual, expected) => {
+    if (actual === undefined || actual === null) {
+      mismatches.push({ field, expected, actual: null, reason: 'not_returned_by_erp' });
+      return;
+    }
+    if (normalizeComparable(actual) !== normalizeComparable(expected)) mismatches.push({ field, expected, actual });
+  };
+
+  for (const field of ['data', 'validade', 'situacao_id', 'vendedor_id', 'previsao_entrega', 'prazo_entrega', 'valor_frete', 'introducao', 'observacoes', 'observacoes_interna', 'transportadora', 'endereco_entrega', 'exibir_pagamento', 'condicao_pagamento', 'forma_pagamento_id', 'numero_parcelas', 'data_primeira_parcela', 'intervalo_dias']) {
+    if (Object.prototype.hasOwnProperty.call(changes, field)) compare(field, current?.[field], changes[field]);
+  }
+
+  for (const field of ['produtos', 'servicos', 'pagamentos']) {
+    if (!Object.prototype.hasOwnProperty.call(changes, field)) continue;
+    const expected = collectionForVerification(changes[field]);
+    const actual = collectionForVerification(current?.[field]);
+    if (actual.length !== expected.length) {
+      mismatches.push({ field: `${field}.length`, expected: expected.length, actual: actual.length });
+      continue;
+    }
+    expected.forEach((entry, index) => {
+      const wanted = proposalItemForVerification(entry);
+      const found = proposalItemForVerification(actual[index]);
+      if (field === 'pagamentos') {
+        compare(`${field}[${index}].valor`, found.valor ?? found.value, wanted.valor ?? wanted.value);
+        compare(`${field}[${index}].data_vencimento`, found.data_vencimento ?? found.vencimento, wanted.data_vencimento ?? wanted.vencimento);
+        return;
+      }
+      compare(`${field}[${index}].id`, found.id ?? found.produto_id ?? found.servico_id, wanted.id ?? wanted.produto_id ?? wanted.servico_id);
+      compare(`${field}[${index}].quantidade`, found.quantidade ?? found.quantity, wanted.quantidade ?? wanted.quantity);
+      compare(`${field}[${index}].valor_venda`, found.valor_venda ?? found.valor ?? found.preco, wanted.valor_venda ?? wanted.valor ?? wanted.preco);
+    });
+  }
+  return mismatches;
+}
+
 function buildProposalIntroduction(body) {
   const { rules, typeKey, typeRule } = getProposalTypeRule(body.tipo_proposta);
   const solution = String(body.solucao || '').trim();
@@ -504,7 +543,7 @@ function buildProposalIntroduction(body) {
   const currency = String(body.moeda || rules.currency_default || 'BRL').trim().toUpperCase();
   if (!['BRL', 'USD'].includes(currency)) throw requestError('moeda invalida', { field: 'moeda', allowed: ['BRL', 'USD'] });
 
-  const total = proposalTotal(body.produtos, body.servicos);
+  const total = proposalTotal(body.produtos);
   const formattedValue = formatProposalMoney(total, currency);
   const pattern = typeKey === 'compra'
     ? (currency === 'USD' ? typeRule.introduction_pattern_usd : typeRule.introduction_pattern_brl)
@@ -798,19 +837,26 @@ app.put('/erp/orcamentos/:id', async (req, res) => {
     if (!current) throw requestError('Nao foi possivel interpretar a proposta atual antes da edicao', { id: req.params.id });
 
     const { payload, changes } = buildProposalEditPayload(current, req.body || {});
-    let updateResult;
-    let updateEndpoint = `/orcamentos/${id}`;
-    try {
-      updateResult = await betelRequest(updateEndpoint, { method: 'PUT', body: payload });
-    } catch (err) {
-      const proposalNumber = current?.codigo;
-      if (err?.status !== 404 || proposalNumber === undefined || proposalNumber === null) throw err;
-      updateEndpoint = `/orcamentos/numero/${encodeURIComponent(String(proposalNumber))}`;
-      updateResult = await betelRequest(updateEndpoint, { method: 'PUT', body: payload });
-    }
+    const updateResult = await betelRequest(`/orcamentos/${id}`, { method: 'PUT', body: payload });
     const refreshedResult = await betelRequest(`/orcamentos/${id}`);
     const refreshed = extractProposalData(refreshedResult);
     const publicLink = await resolvePublicProposalLink(refreshedResult);
+
+    const mismatches = verifyProposalEdit(refreshed, changes);
+    if (mismatches.length) {
+      return res.status(409).json({
+        status: 'error',
+        action: 'proposal_update_not_confirmed',
+        message: 'O ERP recebeu a atualização, mas não confirmou todos os dados após a leitura de volta.',
+        id: String(req.params.id),
+        codigo: refreshed?.codigo ?? current?.codigo ?? null,
+        changes_requested: changes,
+        verification_mismatches: mismatches,
+        proposal: updateResult,
+        verification: refreshedResult,
+        ...publicLink
+      });
+    }
 
     res.json({
       status: 'success',
@@ -821,40 +867,9 @@ app.put('/erp/orcamentos/:id', async (req, res) => {
       before: Object.fromEntries(Object.keys(changes).map(field => [field, current?.[field] ?? null])),
       after: Object.fromEntries(Object.keys(changes).map(field => [field, refreshed?.[field] ?? null])),
       proposal: updateResult,
-      verification: refreshedResult,
+      verification: { confirmed: true, resource: refreshedResult },
       ...publicLink
     });
-  } catch (err) { handleError(err, res); }
-});
-app.post('/erp/orcamentos/:id/clonar', async (req, res) => {
-  try {
-    const body = req.body || {};
-    if (body.confirmacao_clonagem !== true) throw requestError('confirmacao_clonagem deve ser true antes de criar uma nova proposta', { field: 'confirmacao_clonagem' });
-    const novoCodigo = String(body.codigo || '').trim();
-    if (!/^\d+$/.test(novoCodigo)) throw requestError('codigo da nova proposta deve ser numerico', { field: 'codigo' });
-    const originalResult = await betelRequest(`/orcamentos/${encodeURIComponent(req.params.id)}`);
-    const original = extractProposalData(originalResult);
-    if (!original) throw requestError('Nao foi possivel interpretar a proposta original', { id: req.params.id });
-    const cloneFields = [
-      'tipo', 'cliente_id', 'situacao_id', 'vendedor_id', 'validade', 'previsao_entrega', 'prazo_entrega',
-      'condicao_pagamento', 'forma_pagamento_id', 'data_primeira_parcela', 'numero_parcelas', 'intervalo_dias',
-      'pagamentos', 'produtos', 'servicos', 'desconto_valor', 'desconto_porcentagem', 'tipo_desconto',
-      'introducao', 'observacoes', 'observacoes_interna'
-    ];
-    const payload = Object.fromEntries(cloneFields.filter(field => Object.prototype.hasOwnProperty.call(original, field)).map(field => [field, original[field]]));
-    payload.tipo = payload.tipo || 'produto';
-    payload.codigo = Number(novoCodigo);
-    payload.data = body.data || new Date().toISOString().slice(0, 10);
-    payload.valor_frete = 0;
-    if (Object.prototype.hasOwnProperty.call(body, 'observacoes')) payload.observacoes = body.observacoes;
-    if (Object.prototype.hasOwnProperty.call(body, 'introducao')) payload.introducao = body.introducao;
-    const precheck = await verifyProposalWrite(novoCodigo, payload, req.correlationId);
-    if (precheck.outcome === 'found') throw requestError('Ja existe uma proposta com este codigo', { field: 'codigo', codigo: novoCodigo });
-    const reconciliation = await reconcileWrite({ operation: 'clone_proposal', endpoint: '/orcamentos', correlationId: req.correlationId, payload,
-      write: () => betelRequest('/orcamentos', { method: 'POST', body: payload, correlationId: req.correlationId, operation: 'clone_proposal', observe: true }),
-      verify: () => verifyProposalWrite(novoCodigo, payload, req.correlationId) });
-    const success = [EFFECTIVE_STATUS.SUCCESS, EFFECTIVE_STATUS.SUCCESS_RECOVERED].includes(reconciliation.effective_status);
-    res.status(200).json({ status: success ? 'success' : 'error', action: 'proposal_cloned', proposta_origem: { id: String(req.params.id), codigo: original.codigo || null }, codigo_nova_proposta: novoCodigo, ...reconciliation });
   } catch (err) { handleError(err, res); }
 });
 app.post('/erp/orcamentos', async (req, res) => {
