@@ -605,8 +605,21 @@ function buildProposalIntroduction(body) {
   };
 }
 
+async function hubspotReadWithRetry(request) {
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await request();
+    } catch (error) {
+      lastError = error;
+      if (error?.status !== 429 || attempt === 2) throw error;
+      await sleep(550 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
 async function hubspotSearch(objectType, propertyName, value, properties = [], context = {}) {
-  return hubspotRequest(`/crm/v3/objects/${objectType}/search`, {
+  return hubspotReadWithRetry(() => hubspotRequest(`/crm/v3/objects/${objectType}/search`, {
     method: 'POST',
     body: {
       filterGroups: [{ filters: [{ propertyName, operator: 'EQ', value: String(value) }] }],
@@ -614,14 +627,14 @@ async function hubspotSearch(objectType, propertyName, value, properties = [], c
       limit: 10
     },
     ...context,
-  });
+  }));
 }
 async function hubspotSearchByQuery(objectType, query, properties = [], context = {}) {
-  return hubspotRequest(`/crm/v3/objects/${objectType}/search`, {
+  return hubspotReadWithRetry(() => hubspotRequest(`/crm/v3/objects/${objectType}/search`, {
     method: 'POST',
     body: { query: String(query || '').trim(), properties, limit: 10 },
     ...context,
-  });
+  }));
 }
 function companySearchTerms(value) {
   const normalized = normalizeText(value).replace(/[^a-z0-9\s.-]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -632,18 +645,21 @@ function companySearchTerms(value) {
 async function hubspotCompanyCandidates(empresa, properties = [], context = {}) {
   const found = new Map();
   for (const term of companySearchTerms(empresa)) {
-    const [exact, contains, fullText] = await Promise.all([
-      hubspotSearch('companies', 'name', term, properties, context),
-      hubspotRequest('/crm/v3/objects/companies/search', {
+    const exact = await hubspotSearch('companies', 'name', term, properties, context);
+    for (const item of exact?.results || []) found.set(String(item.id), item);
+    if (found.size) return [...found.values()];
+
+    const contains = await hubspotReadWithRetry(() => hubspotRequest('/crm/v3/objects/companies/search', {
         method: 'POST',
         body: { filterGroups: [{ filters: [{ propertyName: 'name', operator: 'CONTAINS_TOKEN', value: `*${term}*` }] }], properties, limit: 20 },
         ...context,
-      }),
-      hubspotSearchByQuery('companies', term, properties, context),
-    ]);
-    for (const result of [exact, contains, fullText]) {
-      for (const item of result?.results || []) found.set(String(item.id), item);
-    }
+      }));
+    for (const item of contains?.results || []) found.set(String(item.id), item);
+    if (found.size) return [...found.values()];
+
+    const fullText = await hubspotSearchByQuery('companies', term, properties, context);
+    for (const item of fullText?.results || []) found.set(String(item.id), item);
+    if (found.size) return [...found.values()];
   }
   return [...found.values()];
 }
