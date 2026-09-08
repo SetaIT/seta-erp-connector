@@ -632,12 +632,18 @@ function companySearchTerms(value) {
 async function hubspotCompanyCandidates(empresa, properties = [], context = {}) {
   const found = new Map();
   for (const term of companySearchTerms(empresa)) {
-    const result = await hubspotRequest('/crm/v3/objects/companies/search', {
-      method: 'POST',
-      body: { filterGroups: [{ filters: [{ propertyName: 'name', operator: 'CONTAINS_TOKEN', value: term }] }], properties, limit: 20 },
-      ...context,
-    });
-    for (const item of result?.results || []) found.set(String(item.id), item);
+    const [exact, contains, fullText] = await Promise.all([
+      hubspotSearch('companies', 'name', term, properties, context),
+      hubspotRequest('/crm/v3/objects/companies/search', {
+        method: 'POST',
+        body: { filterGroups: [{ filters: [{ propertyName: 'name', operator: 'CONTAINS_TOKEN', value: `*${term}*` }] }], properties, limit: 20 },
+        ...context,
+      }),
+      hubspotSearchByQuery('companies', term, properties, context),
+    ]);
+    for (const result of [exact, contains, fullText]) {
+      for (const item of result?.results || []) found.set(String(item.id), item);
+    }
   }
   return [...found.values()];
 }
@@ -1057,41 +1063,28 @@ app.post('/erp/hubspot/negocios-da-proposta', async (req, res) => {
       ['dealname', 'numero_da_proposta', 'link_da_proposta', 'solucao', 'pipeline', 'dealstage', 'amount'],
       { correlationId, operation: 'precheck_hubspot_deal_duplicate' },
     );
-    if (duplicate.total > 0) {
-      const comparison = dealEquivalence(duplicate.results[0], properties);
-      return res.status(200).json({
-        operation: 'create_hubspot_deal',
-        write_attempted: false,
-        http_status: null,
-        downstream_response: null,
-        verification: { performed: true, found: true, equivalent: comparison.equivalent, resource: duplicate.results[0], details: comparison },
-        effective_status: EFFECTIVE_STATUS.DUPLICATE,
-        error_taxonomy: ERROR_TAXONOMY.DUPLICATE,
-        endpoint: '/crm/v3/objects/deals',
-        request_correlation_id: correlationId,
-        sanitized_payload: sanitizePayload({ properties }),
-        timestamp: new Date().toISOString(),
-      });
-    }
+    const existingDeal = duplicate.total > 0 ? duplicate.results[0] : null;
 
     const companyResult = await findOrCreateCompany({ empresa, domain, company_id: body.company_id, criar_empresa: body.criar_empresa === true }, correlationId);
     const selectedContacts = normalizeContacts(body);
     const contacts = await findOrCreateContacts(selectedContacts, companyResult.record.id, correlationId);
 
     const reconciliation = await reconcileWrite({
-      operation: 'create_hubspot_deal',
-      endpoint: '/crm/v3/objects/deals',
+      operation: existingDeal ? 'update_hubspot_deal' : 'create_hubspot_deal',
+      endpoint: existingDeal ? `/crm/v3/objects/deals/${encodeURIComponent(existingDeal.id)}` : '/crm/v3/objects/deals',
       correlationId,
       payload: { properties },
       acceptDirectEvidence: true,
       directEvidence: (value) => Boolean(value?.id),
-      write: () => hubspotRequest('/crm/v3/objects/deals', {
-        method: 'POST',
-        body: { properties },
-        correlationId,
-        operation: 'create_hubspot_deal',
-        observe: true,
-      }),
+      write: () => existingDeal
+        ? hubspotUpdate('deals', existingDeal.id, properties, { correlationId, operation: 'update_hubspot_deal', observe: true })
+        : hubspotRequest('/crm/v3/objects/deals', {
+          method: 'POST',
+          body: { properties },
+          correlationId,
+          operation: 'create_hubspot_deal',
+          observe: true,
+        }),
       verify: () => verifyDealWrite(numero, properties, correlationId),
     });
     const canContinue = [EFFECTIVE_STATUS.SUCCESS, EFFECTIVE_STATUS.SUCCESS_RECOVERED]
@@ -1122,6 +1115,7 @@ app.post('/erp/hubspot/negocios-da-proposta', async (req, res) => {
     return res.status(200).json({
       status: canContinue ? (associationFailures.length ? 'partial_success' : 'success') : 'error',
       ...reconciliation,
+      mode: existingDeal ? 'updated' : 'created',
       deal,
       deal_name: dealName,
       tipo_proposta: typeKey,
