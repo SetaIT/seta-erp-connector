@@ -581,7 +581,15 @@ function buildProposalIntroduction(body) {
     .trim();
 
   const fixedFooter = String(rules.introduction?.fixed_footer || '').trim();
-  const introduction = [variableBlock, fixedFooter].filter(Boolean).join('\n\n');
+  const logisticsLine = [
+    deliveryTerm ? `Prazo estimado de entrega: ${deliveryTerm}` : '',
+    freightFormatted ? `Frete informado: ${freightFormatted}` : '',
+  ]
+    .filter(Boolean)
+    .join(' | ');
+  const introduction = [logisticsLine, variableBlock, fixedFooter]
+    .filter(Boolean)
+    .join('\n\n');
 
   return {
     introduction,
