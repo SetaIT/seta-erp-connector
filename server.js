@@ -581,9 +581,21 @@ function buildProposalIntroduction(body) {
     .trim();
 
   const fixedFooter = String(rules.introduction?.fixed_footer || '').trim();
+  const suppliedDeliveryDays = Number(body.prazo_entrega_dias);
+  const introductionDeliveryTerm = deliveryTerm || (
+    Number.isInteger(suppliedDeliveryDays) && suppliedDeliveryDays > 0
+      ? `${suppliedDeliveryDays} dias`
+      : ''
+  );
+  const suppliedFreight = body.valor_frete_informativo ?? body.valor_frete;
+  const introductionFreight = freightFormatted || (
+    suppliedFreight !== undefined && suppliedFreight !== null && String(suppliedFreight).trim() !== ''
+      ? formatProposalMoney(parseMoney(suppliedFreight, 'valor_frete_informativo'), currency)
+      : ''
+  );
   const logisticsLine = [
-    deliveryTerm ? `Prazo estimado de entrega: ${deliveryTerm}` : '',
-    freightFormatted ? `Frete informado: ${freightFormatted}` : '',
+    introductionDeliveryTerm ? `Prazo estimado de entrega: ${introductionDeliveryTerm}` : '',
+    introductionFreight ? `Frete: ${introductionFreight}` : '',
   ]
     .filter(Boolean)
     .join(' | ');
