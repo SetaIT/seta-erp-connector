@@ -466,6 +466,26 @@ function buildProposalEditPayload(current, body) {
   for (const field of EDITABLE_PROPOSAL_FIELDS) {
     if (Object.prototype.hasOwnProperty.call(body, field)) changes[field] = body[field];
   }
+
+  // O Betel não mantém os campos auxiliares usados pela interface
+  // (prazo_entrega_dias e valor_frete_informativo). Em uma edição, transforme
+  // esses valores na introdução e no prazo de entrega que o ERP efetivamente
+  // persiste, para que a proposta possa ser carregada novamente sem defaults.
+  const commercialFields = ['tipo_proposta', 'solucao', 'meses', 'moeda', 'prazo_entrega_dias', 'valor_frete_informativo', 'sla'];
+  if (commercialFields.some(field => Object.prototype.hasOwnProperty.call(body, field))) {
+    const commercialSource = {
+      ...current,
+      ...body,
+      produtos: body.produtos ?? current.produtos ?? [],
+      servicos: body.servicos ?? current.servicos ?? []
+    };
+    const { introduction, metadata } = buildProposalIntroduction(commercialSource);
+    changes.introducao = introduction;
+    if (metadata.prazo_entrega_data) changes.prazo_entrega = metadata.prazo_entrega_data;
+    // É um campo somente informativo: fica na introdução e não deve depender
+    // de uma propriedade opcional que o ERP pode descartar silenciosamente.
+    delete changes.valor_frete_informativo;
+  }
   if (Object.keys(changes).length === 0) throw requestError('Informe pelo menos um campo para alterar', { allowed_fields: EDITABLE_PROPOSAL_FIELDS });
 
   if (Object.prototype.hasOwnProperty.call(changes, 'data')) parseIsoDate(changes.data, 'data');
