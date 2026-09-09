@@ -116,6 +116,71 @@ function parseDateToIso(value, fieldName) {
   return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+function addCalendarDays(isoDate, days) {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function requiredPositiveDays(value) {
+  const days = Number(value);
+  if (!Number.isInteger(days) || days < 1) {
+    const err = new Error('prazo_entrega_dias deve ser um inteiro maior que zero');
+    err.stage = 'prepare_payload';
+    err.field = 'prazo_entrega_dias';
+    throw err;
+  }
+  return days;
+}
+
+function normalizeInformationalFreight(value) {
+  const raw = String(value ?? '').trim().replace(/\s/g, '').replace(/R\$/gi, '');
+  const normalized = raw.includes(',') && raw.includes('.')
+    ? raw.replace(/\./g, '').replace(',', '.')
+    : raw.replace(',', '.');
+  const amount = Number(normalized);
+  if (!Number.isFinite(amount) || amount < 0) {
+    const err = new Error('valor_frete_informativo deve ser um valor maior ou igual a zero');
+    err.stage = 'prepare_payload';
+    err.field = 'valor_frete_informativo';
+    throw err;
+  }
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount).replace(/\u00a0/g, ' ');
+}
+
+function withCommercialHeader(introduction, deliveryDays, freight) {
+  const header = `Prazo estimado de entrega: ${deliveryDays} dias | Frete: ${freight}`;
+  const remaining = String(introduction ?? '')
+    .replace(/^Prazo estimado de entrega:\s*\d+\s*dias\s*(?:\|\s*Frete:\s*[^\n]*)?\s*/i, '')
+    .replace(/^Frete:\s*[^\n]*\s*/i, '')
+    .trimStart();
+  return remaining ? `${header}\n${remaining}` : header;
+}
+
+function applyCommercialPersistence(current, body, changes) {
+  const hasDelivery = Object.prototype.hasOwnProperty.call(body || {}, 'prazo_entrega_dias');
+  const hasFreight = Object.prototype.hasOwnProperty.call(body || {}, 'valor_frete_informativo');
+  if (!hasDelivery && !hasFreight) return null;
+
+  const introductionSource = Object.prototype.hasOwnProperty.call(body || {}, 'introducao')
+    ? body.introducao
+    : (current?.introducao ?? '');
+  const deliveryDays = hasDelivery
+    ? requiredPositiveDays(body.prazo_entrega_dias)
+    : Number((String(introductionSource).match(/Prazo estimado de entrega:\s*(\d+)\s*dias/i) || [])[1]);
+  if (!Number.isInteger(deliveryDays) || deliveryDays < 1) return null;
+  const freight = hasFreight
+    ? normalizeInformationalFreight(body.valor_frete_informativo)
+    : ((String(introductionSource).match(/Frete:\s*(R\$\s*[\d.,]+)/i) || [])[1] || 'R$ 0,00');
+  const proposalDate = parseDateToIso(body.data ?? currentRequired(current, 'data'), 'data');
+  const introduction = withCommercialHeader(introductionSource, deliveryDays, freight);
+  changes.introducao = introduction;
+  // Betel documents this persisted delivery field as previsao_entrega (YYYY-MM-DD).
+  changes.previsao_entrega = addCalendarDays(proposalDate, deliveryDays);
+  return { deliveryDays, freight, introduction, previsaoEntrega: changes.previsao_entrega };
+}
+
 async function betel(path, { method = 'GET', body } = {}) {
   const response = await fetch(`${BETEL_BASE_URL}${path}`, {
     method,
@@ -175,6 +240,7 @@ function buildPayload(current, body) {
   for (const field of EDITABLE_FIELDS) {
     if (Object.prototype.hasOwnProperty.call(body || {}, field)) changes[field] = body[field];
   }
+  const commercialFields = applyCommercialPersistence(current, body, changes);
   if (!Object.keys(changes).length) {
     const err = new Error('Informe pelo menos um campo para alterar');
     err.stage = 'prepare_payload';
@@ -215,7 +281,7 @@ function buildPayload(current, body) {
   payload.data = Object.prototype.hasOwnProperty.call(changes, 'data') ? changes.data : parseDateToIso(currentRequired(current, 'data'), 'data');
   payload.tipo = inferProposalType(current);
 
-  return { payload, changes, preservedFields: Object.keys(preserved) };
+  return { payload, changes, preservedFields: Object.keys(preserved), commercialFields };
 }
 
 function valuesForFields(source, fields) {
@@ -289,6 +355,7 @@ async function editDiagnosticsHandler(req, res) {
   let changes;
   let payload;
   let preservedFields = [];
+  let commercialFields = null;
 
   try {
     const currentResponse = await betel(`/orcamentos/${encodeURIComponent(id)}`);
@@ -299,7 +366,7 @@ async function editDiagnosticsHandler(req, res) {
     if (!current) {
       return res.status(200).json({ status: 'error', stage: 'load_current_proposal', write_attempted: false, write_succeeded: false, message: 'Resposta do Betel sem proposta interpretavel.' });
     }
-    ({ payload, changes, preservedFields } = buildPayload(current, req.body || {}));
+    ({ payload, changes, preservedFields, commercialFields } = buildPayload(current, req.body || {}));
   } catch (err) {
     return res.status(200).json({ status: 'error', stage: err.stage || 'prepare_payload', write_attempted: false, write_succeeded: false, field: err.field || null, message: err.message });
   }
@@ -370,7 +437,8 @@ async function editDiagnosticsHandler(req, res) {
     requested: changes,
     after: afterRequested,
     finance_before: financeSummary(current),
-    finance_after: financeSummary(refreshed)
+    finance_after: financeSummary(refreshed),
+    commercial_fields: commercialFields
   });
 }
 
