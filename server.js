@@ -600,7 +600,11 @@ function buildProposalIntroduction(body) {
     .replaceAll('{sla}', sla)
     .trim();
 
-  const fixedFooter = String(rules.introduction?.fixed_footer || '').trim();
+  const exchangeRateNote = 'Para cotações expressas em dólar, os valores serão convertidos para BRL (Reais) utilizando a PTAX vigente na data do faturamento.';
+  const fixedFooter = String(rules.introduction?.fixed_footer || '')
+    .replace(exchangeRateNote, typeKey === 'compra' ? exchangeRateNote : '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   const suppliedDeliveryDays = Number(body.prazo_entrega_dias);
   const introductionDeliveryTerm = deliveryTerm || (
     Number.isInteger(suppliedDeliveryDays) && suppliedDeliveryDays > 0
@@ -613,12 +617,14 @@ function buildProposalIntroduction(body) {
       ? formatProposalMoney(parseMoney(suppliedFreight, 'valor_frete_informativo'), currency)
       : ''
   );
-  const logisticsLine = [
-    introductionDeliveryTerm ? `Prazo estimado de entrega: ${introductionDeliveryTerm}` : '',
-    introductionFreight ? `Frete: ${introductionFreight}` : '',
-  ]
-    .filter(Boolean)
-    .join(' | ');
+  const logisticsLine = typeKey === 'spareparts'
+    ? ''
+    : [
+      introductionDeliveryTerm ? `Prazo estimado de entrega: ${introductionDeliveryTerm}` : '',
+      introductionFreight ? `Frete: ${introductionFreight}` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ');
   const introduction = [logisticsLine, variableBlock, fixedFooter]
     .filter(Boolean)
     .join('\n\n');
