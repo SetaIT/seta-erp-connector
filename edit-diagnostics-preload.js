@@ -163,6 +163,18 @@ function applyCommercialPersistence(current, body, changes) {
   const hasFreight = Object.prototype.hasOwnProperty.call(body || {}, 'valor_frete_informativo');
   if (!hasDelivery && !hasFreight) return null;
 
+  const proposalType = String(body?.tipo_proposta ?? body?.tipo ?? '').trim().toLowerCase();
+  if (proposalType === 'spareparts') {
+    const introduction = String(body?.introducao ?? current?.introducao ?? '')
+      .replace(/(?:^|\n)Prazo estimado de entrega:\s*\d+\s*dias\s*(?:\|\s*Frete:\s*[^\n]*)?/gi, '')
+      .replace(/(?:^|\n)Frete:\s*[^\n]*/gi, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    changes.introducao = introduction;
+    changes.previsao_entrega = null;
+    return { deliveryDays: null, freight: null, introduction, previsaoEntrega: null };
+  }
+
   const introductionSource = Object.prototype.hasOwnProperty.call(body || {}, 'introducao')
     ? body.introducao
     : (current?.introducao ?? '');
