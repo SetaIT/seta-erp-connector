@@ -467,6 +467,10 @@ function buildProposalEditPayload(current, body) {
     if (Object.prototype.hasOwnProperty.call(body, field)) changes[field] = body[field];
   }
 
+  for (const field of ['produtos', 'servicos']) {
+    if (Array.isArray(changes[field])) changes[field] = changes[field].map(normalizeItemDiscount);
+  }
+
   // O Betel não mantém os campos auxiliares usados pela interface
   // (prazo_entrega_dias e valor_frete_informativo). Em uma edição, transforme
   // esses valores na introdução e no prazo de entrega que o ERP efetivamente
@@ -511,6 +515,26 @@ function proposalItemForVerification(entry) {
   return entry.produto || entry.servico || entry;
 }
 
+function normalizeItemDiscount(item) {
+  if (!item || typeof item !== 'object') return item;
+  const nestedKey = item.produto && typeof item.produto === 'object'
+    ? 'produto'
+    : item.servico && typeof item.servico === 'object'
+      ? 'servico'
+      : null;
+  const line = nestedKey ? item[nestedKey] : item;
+  const legacyDiscount = line.desconto ?? line.desconto_porcentagem;
+  if (legacyDiscount === undefined || legacyDiscount === null || String(legacyDiscount).trim() === '') return item;
+  const normalized = {
+    ...line,
+    tipo_desconto: '%',
+    desconto_valor: '0.00',
+    desconto_porcentagem: String(legacyDiscount),
+  };
+  delete normalized.desconto;
+  return nestedKey ? { ...item, [nestedKey]: normalized } : normalized;
+}
+
 function verifyProposalEdit(current, changes) {
   const mismatches = [];
   const compare = (field, actual, expected) => {
@@ -544,6 +568,11 @@ function verifyProposalEdit(current, changes) {
       compare(`${field}[${index}].id`, found.id ?? found.produto_id ?? found.servico_id, wanted.id ?? wanted.produto_id ?? wanted.servico_id);
       compare(`${field}[${index}].quantidade`, found.quantidade ?? found.quantity, wanted.quantidade ?? wanted.quantity);
       compare(`${field}[${index}].valor_venda`, found.valor_venda ?? found.valor ?? found.preco, wanted.valor_venda ?? wanted.valor ?? wanted.preco);
+      if (wanted.tipo_desconto !== undefined || wanted.desconto_valor !== undefined || wanted.desconto_porcentagem !== undefined) {
+        compare(`${field}[${index}].tipo_desconto`, found.tipo_desconto, wanted.tipo_desconto);
+        compare(`${field}[${index}].desconto_valor`, found.desconto_valor, wanted.desconto_valor);
+        compare(`${field}[${index}].desconto_porcentagem`, found.desconto_porcentagem, wanted.desconto_porcentagem);
+      }
     });
   }
   return mismatches;
