@@ -1077,7 +1077,24 @@ app.get('/erp/hubspot/contatos', async (req, res) => {
 app.get('/erp/hubspot/negocios', async (req, res) => {
   try {
     if (!req.query.numero_proposta) throw requestError('numero_proposta e obrigatorio', { field: 'numero_proposta' });
-    res.json(await hubspotSearch('deals', 'numero_da_proposta', req.query.numero_proposta, ['dealname', 'numero_da_proposta', 'link_da_proposta', 'solucao', 'pipeline', 'dealstage', 'amount', 'deal_currency_code']));
+    const result = await hubspotSearch('deals', 'numero_da_proposta', req.query.numero_proposta, ['dealname', 'numero_da_proposta', 'link_da_proposta', 'solucao', 'pipeline', 'dealstage', 'amount', 'deal_currency_code']);
+    try {
+      const definition = await hubspotRequest('/crm/v3/properties/deals/solucao');
+      const labels = new Map(
+        (Array.isArray(definition?.options) ? definition.options : [])
+          .map((option) => [String(option?.value || ''), String(option?.label || '')])
+          .filter(([value, label]) => value && label),
+      );
+      result.results = (Array.isArray(result?.results) ? result.results : []).map((deal) => {
+        const properties = deal?.properties || {};
+        const solutionValue = String(properties.solucao || '').trim();
+        const solutionLabel = labels.get(solutionValue) || solutionValue;
+        return { ...deal, properties: { ...properties, solucao_label: solutionLabel } };
+      });
+    } catch {
+      // A consulta do deal continua útil mesmo se a definição do campo não estiver disponível.
+    }
+    res.json(result);
   } catch (err) { handleError(err, res); }
 });
 
