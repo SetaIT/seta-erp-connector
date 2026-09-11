@@ -1127,6 +1127,90 @@ app.get('/erp/hubspot/negocios', async (req, res) => {
   } catch (err) { handleError(err, res); }
 });
 
+});
+
+// Fases são carregadas do pipeline que já está vinculado ao Deal. Dessa forma,
+// a interface nunca oferece uma fase de outro funil para a proposta atual.
+async function proposalDealForStageChange(dealId, proposalNumber, correlationId) {
+  const deal = await hubspotGet('deals', dealId, ['dealname', 'numero_da_proposta', 'pipeline', 'dealstage'], {
+    correlationId,
+    operation: 'read_hubspot_deal_pipeline',
+  });
+  const properties = deal?.properties || {};
+  if (String(properties.numero_da_proposta || '').trim() !== proposalNumber) {
+    throw requestError('O negócio informado não pertence a esta proposta.', {
+      field: 'numero_proposta',
+      proposal_number: proposalNumber,
+      deal_id: String(dealId),
+    });
+  }
+  const pipelineId = String(properties.pipeline || '').trim();
+  if (!pipelineId) throw requestError('O negócio não possui pipeline configurado no HubSpot.', { deal_id: String(dealId) });
+  const pipeline = await hubspotRequest(`/crm/v3/pipelines/deals/${encodeURIComponent(pipelineId)}`, {
+    correlationId,
+    operation: 'read_hubspot_pipeline_stages',
+  });
+  return { deal, properties, pipeline };
+}
+
+function pipelineStages(pipeline) {
+  return (Array.isArray(pipeline?.stages) ? pipeline.stages : [])
+    .map((stage) => ({
+      id: String(stage?.id || '').trim(),
+      label: String(stage?.label || stage?.id || '').trim(),
+      display_order: Number(stage?.displayOrder || 0),
+      is_closed: Boolean(stage?.metadata?.isClosed),
+      probability: String(stage?.metadata?.probability || ''),
+    }))
+    .filter((stage) => stage.id && stage.label)
+    .sort((left, right) => left.display_order - right.display_order);
+}
+
+app.get('/erp/hubspot/negocios/:id/fases', async (req, res) => {
+  try {
+    const proposalNumber = String(req.query.numero_proposta || '').trim();
+    if (!proposalNumber) throw requestError('numero_proposta e obrigatorio', { field: 'numero_proposta' });
+    const { properties, pipeline } = await proposalDealForStageChange(req.params.id, proposalNumber, req.correlationId);
+    res.json({
+      status: 'success',
+      deal_id: String(req.params.id),
+      pipeline: { id: String(pipeline?.id || properties.pipeline), label: String(pipeline?.label || properties.pipeline) },
+      current_stage_id: String(properties.dealstage || ''),
+      stages: pipelineStages(pipeline),
+    });
+  } catch (err) { handleError(err, res); }
+});
+
+app.post('/erp/hubspot/negocios/:id/fase', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const proposalNumber = String(body.numero_proposta || '').trim();
+    const stageId = String(body.fase_id || '').trim();
+    if (!proposalNumber) throw requestError('numero_proposta e obrigatorio', { field: 'numero_proposta' });
+    if (!stageId) throw requestError('fase_id e obrigatorio', { field: 'fase_id' });
+    if (body.confirmacao_atualizacao !== true) throw requestError('confirmacao_atualizacao deve ser true antes de alterar a fase.', { field: 'confirmacao_atualizacao' });
+    const { pipeline } = await proposalDealForStageChange(req.params.id, proposalNumber, req.correlationId);
+    const stages = pipelineStages(pipeline);
+    const selected = stages.find((stage) => stage.id === stageId);
+    if (!selected) throw requestError('A fase selecionada não pertence ao pipeline deste negócio.', {
+      field: 'fase_id', pipeline_id: String(pipeline?.id || ''), allowed_stages: stages,
+    });
+    const deal = await hubspotUpdate('deals', req.params.id, { dealstage: selected.id }, {
+      correlationId: req.correlationId,
+      operation: 'update_hubspot_deal_stage',
+    });
+    const confirmed = await hubspotGet('deals', req.params.id, ['pipeline', 'dealstage'], {
+      correlationId: req.correlationId,
+      operation: 'verify_hubspot_deal_stage',
+    });
+    if (String(confirmed?.properties?.dealstage || '') !== selected.id) {
+      throw requestError('O HubSpot não confirmou a atualização da fase do negócio.', { deal_id: String(req.params.id), expected_stage: selected.id });
+    }
+    res.json({ status: 'success', deal, pipeline: { id: String(pipeline?.id || ''), label: String(pipeline?.label || '') }, stage: selected });
+  } catch (err) { handleError(err, res); }
+});
+
+
 app.post('/erp/hubspot/negocios-da-proposta', async (req, res) => {
   try {
     const correlationId = req.correlationId;
