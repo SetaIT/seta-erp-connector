@@ -1,5 +1,6 @@
 import express from 'express';
 import { buildIntakeLookupPlan, normalizeCommercialIntake } from './capturar-solicitacao-core.js';
+import { capturarSolicitacaoDevHtml } from './capturar-solicitacao-dev-ui.js';
 
 const originalListen = express.application.listen;
 let installed = false;
@@ -13,6 +14,10 @@ function enabled() {
 express.application.listen = function patchedListen(...args) {
   if (!installed && enabled()) {
     installed = true;
+
+    this.get('/dev/capturar-solicitacao', (req, res) => {
+      res.type('html').status(200).send(capturarSolicitacaoDevHtml());
+    });
 
     this.post('/dev/capturar-solicitacao/dry-run', (req, res) => {
       const intake = normalizeCommercialIntake(req.body || {});
