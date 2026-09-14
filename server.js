@@ -431,6 +431,7 @@ const EDITABLE_PROPOSAL_FIELDS = [
   'data',
   'validade',
   'cliente_id',
+  'nome_cliente',
   'situacao_id',
   'vendedor_id',
   'previsao_entrega',
@@ -546,7 +547,7 @@ function verifyProposalEdit(current, changes) {
     if (normalizeComparable(actual) !== normalizeComparable(expected)) mismatches.push({ field, expected, actual });
   };
 
-  for (const field of ['cliente_id', 'data', 'validade', 'situacao_id', 'vendedor_id', 'previsao_entrega', 'prazo_entrega', 'valor_frete', 'introducao', 'observacoes', 'observacoes_interna', 'transportadora', 'endereco_entrega', 'exibir_pagamento', 'condicao_pagamento', 'forma_pagamento_id', 'numero_parcelas', 'data_primeira_parcela', 'intervalo_dias']) {
+  for (const field of ['cliente_id', 'nome_cliente', 'data', 'validade', 'situacao_id', 'vendedor_id', 'previsao_entrega', 'prazo_entrega', 'valor_frete', 'introducao', 'observacoes', 'observacoes_interna', 'transportadora', 'endereco_entrega', 'exibir_pagamento', 'condicao_pagamento', 'forma_pagamento_id', 'numero_parcelas', 'data_primeira_parcela', 'intervalo_dias']) {
     if (Object.prototype.hasOwnProperty.call(changes, field)) compare(field, current?.[field], changes[field]);
   }
 
