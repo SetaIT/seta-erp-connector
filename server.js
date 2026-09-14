@@ -473,6 +473,19 @@ function buildProposalEditPayload(current, body) {
     if (Array.isArray(changes[field])) changes[field] = changes[field].map(normalizeItemDiscount);
   }
 
+  // A API do ERP exige cliente_id inteiro. Rejeitar um identificador inválido
+  // evita confirmar uma edição que o Betel ignora silenciosamente.
+  if (Object.prototype.hasOwnProperty.call(changes, 'cliente_id')) {
+    const clientId = Number(changes.cliente_id);
+    if (!Number.isSafeInteger(clientId) || clientId <= 0) {
+      throw requestError('cliente_id deve ser um ID numérico válido do ERP', {
+        field: 'cliente_id',
+        received: changes.cliente_id,
+      });
+    }
+    changes.cliente_id = clientId;
+  }
+
   // O Betel não mantém os campos auxiliares usados pela interface
   // (prazo_entrega_dias e valor_frete_informativo). Em uma edição, transforme
   // esses valores na introdução e no prazo de entrega que o ERP efetivamente
