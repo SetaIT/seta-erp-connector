@@ -430,6 +430,7 @@ async function resolvePublicProposalLink(result) {
 const EDITABLE_PROPOSAL_FIELDS = [
   'data',
   'validade',
+  'cliente_id',
   'situacao_id',
   'vendedor_id',
   'previsao_entrega',
@@ -497,7 +498,7 @@ function buildProposalEditPayload(current, body) {
   const payload = {
     tipo: currentProposalRequiredField(current, 'tipo'),
     codigo: currentProposalRequiredField(current, 'codigo'),
-    cliente_id: currentProposalRequiredField(current, 'cliente_id'),
+    cliente_id: changes.cliente_id ?? currentProposalRequiredField(current, 'cliente_id'),
     situacao_id: currentProposalRequiredField(current, 'situacao_id'),
     data: currentProposalRequiredField(current, 'data'),
     ...changes
@@ -545,7 +546,7 @@ function verifyProposalEdit(current, changes) {
     if (normalizeComparable(actual) !== normalizeComparable(expected)) mismatches.push({ field, expected, actual });
   };
 
-  for (const field of ['data', 'validade', 'situacao_id', 'vendedor_id', 'previsao_entrega', 'prazo_entrega', 'valor_frete', 'introducao', 'observacoes', 'observacoes_interna', 'transportadora', 'endereco_entrega', 'exibir_pagamento', 'condicao_pagamento', 'forma_pagamento_id', 'numero_parcelas', 'data_primeira_parcela', 'intervalo_dias']) {
+  for (const field of ['cliente_id', 'data', 'validade', 'situacao_id', 'vendedor_id', 'previsao_entrega', 'prazo_entrega', 'valor_frete', 'introducao', 'observacoes', 'observacoes_interna', 'transportadora', 'endereco_entrega', 'exibir_pagamento', 'condicao_pagamento', 'forma_pagamento_id', 'numero_parcelas', 'data_primeira_parcela', 'intervalo_dias']) {
     if (Object.prototype.hasOwnProperty.call(changes, field)) compare(field, current?.[field], changes[field]);
   }
 
