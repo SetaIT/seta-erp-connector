@@ -1127,8 +1127,6 @@ app.get('/erp/hubspot/negocios', async (req, res) => {
   } catch (err) { handleError(err, res); }
 });
 
-});
-
 // Fases são carregadas do pipeline que já está vinculado ao Deal. Dessa forma,
 // a interface nunca oferece uma fase de outro funil para a proposta atual.
 async function proposalDealForStageChange(dealId, proposalNumber, correlationId) {
