@@ -1,0 +1,4 @@
+seta-erp-mock-v1-dev
+fixture-version=1
+created-for=stabilization-v1
+external-writes=false
