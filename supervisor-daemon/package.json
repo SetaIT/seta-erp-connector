@@ -1,13 +1,14 @@
 {
   "name": "seta-erp-supervisor-daemon",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "start": "node src/index.mjs"
+    "start": "node src/index.mjs",
+    "test": "NODE_ENV=test node --test test/*.test.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",

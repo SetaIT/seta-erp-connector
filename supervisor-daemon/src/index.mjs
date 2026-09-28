@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 const { Pool } = pg;
 const PORT = Number(process.env.PORT || 3000);
 const DATABASE_URL = process.env.DATABASE_URL;
+const DISPATCHER_TOKEN = process.env.DISPATCHER_TOKEN || "";
 const HEARTBEAT_MS = Number(process.env.SUPERVISOR_HEARTBEAT_MS || 30000);
 const POLL_MS = Number(process.env.SUPERVISOR_POLL_MS || 15000);
 const INSTANCE_ID = process.env.RAILWAY_REPLICA_ID || crypto.randomUUID();
@@ -22,6 +23,49 @@ let loopRunning = false;
 async function query(text, params = []) {
   if (!pool) throw new Error("DATABASE_URL is not configured");
   return pool.query(text, params);
+}
+
+async function withTransaction(fn) {
+  if (!pool) throw new Error("DATABASE_URL is not configured");
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export function isDispatcherAuthorized(headers, token = DISPATCHER_TOKEN) {
+  if (!token) return false;
+  const expectedBearer = `Bearer ${token}`;
+  return Object.values(headers || {}).flatMap(value => Array.isArray(value) ? value : [value])
+    .some(value => value === token || value === expectedBearer);
+}
+
+export function failureDisposition(retryCount, maxRetries) {
+  const nextRetryCount = Number(retryCount || 0) + 1;
+  const blocked = nextRetryCount >= Number(maxRetries || 0);
+  return {
+    retryCount: nextRetryCount,
+    status: blocked ? "blocked" : "pending",
+    requiresHuman: blocked
+  };
+}
+
+function requireDispatcherAuth(req, res, next) {
+  if (!DISPATCHER_TOKEN) {
+    return res.status(503).json({ message: "dispatcher authentication is not configured" });
+  }
+  if (!isDispatcherAuthorized(req.headers)) {
+    return res.status(401).json({ message: "unauthorized" });
+  }
+  next();
 }
 
 async function ensureSchema() {
@@ -129,7 +173,6 @@ async function supervisorCycle() {
     `, [mode, now]);
     lastPollAt = now.toISOString();
 
-    // Mark stale running tasks for retry. Execution agents are added in phase 2.
     await query(`
       UPDATE supervisor_tasks
       SET status='pending',
@@ -167,6 +210,7 @@ app.get("/health", async (_req, res) => {
       service:"seta-erp-supervisor-daemon",
       instanceId:INSTANCE_ID,
       autonomyMode:AUTONOMY_MODE,
+      dispatcherAuth:DISPATCHER_TOKEN ? "configured" : "missing",
       database:db.rows[0]?.ok === 1 ? "ok" : "unknown",
       lastHeartbeatAt,
       lastPollAt,
@@ -199,7 +243,7 @@ app.get("/tasks", async (req, res) => {
   res.json({ items: rows });
 });
 
-app.post("/tasks", async (req, res) => {
+app.post("/tasks", requireDispatcherAuth, async (req, res) => {
   const body = req.body || {};
   if (!body.project || !body.title) return res.status(400).json({ message:"project and title are required" });
   const id = crypto.randomUUID();
@@ -221,7 +265,7 @@ app.post("/tasks", async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
-app.post("/events", async (req, res) => {
+app.post("/events", requireDispatcherAuth, async (req, res) => {
   const body = req.body || {};
   if (!body.type) return res.status(400).json({ message:"type is required" });
   const id = crypto.randomUUID();
@@ -233,15 +277,110 @@ app.post("/events", async (req, res) => {
   res.status(202).json(rows[0]);
 });
 
-app.post("/tasks/:id/complete", async (req, res) => {
-  const { rows } = await query(`
-    UPDATE supervisor_tasks
-    SET status='done', blocked_reason=null, updated_at=now()
-    WHERE id=$1
-    RETURNING *
-  `, [req.params.id]);
-  if (!rows[0]) return res.status(404).json({ message:"task not found" });
-  res.json(rows[0]);
+app.post("/tasks/:id/claim", requireDispatcherAuth, async (req, res) => {
+  const agent = String(req.body?.agent || "supervisor-executivo");
+  const runId = crypto.randomUUID();
+  const result = await withTransaction(async client => {
+    const taskResult = await client.query(`
+      UPDATE supervisor_tasks
+      SET status='running',
+          agent=$2,
+          blocked_reason=null,
+          updated_at=now()
+      WHERE id=$1 AND status='pending' AND requires_human=false
+      RETURNING *
+    `, [req.params.id, agent]);
+    if (!taskResult.rows[0]) return null;
+    const runResult = await client.query(`
+      INSERT INTO supervisor_runs(id, task_id, agent, status)
+      VALUES ($1,$2,$3,'running')
+      RETURNING *
+    `, [runId, req.params.id, agent]);
+    return { task: taskResult.rows[0], run: runResult.rows[0] };
+  });
+  if (!result) return res.status(409).json({ message:"task is not claimable" });
+  res.json(result);
+});
+
+app.post("/tasks/:id/complete", requireDispatcherAuth, async (req, res) => {
+  const resultJson = req.body?.result && typeof req.body.result === "object"
+    ? req.body.result
+    : { message: String(req.body?.result || "completed") };
+  const result = await withTransaction(async client => {
+    const taskResult = await client.query(`
+      UPDATE supervisor_tasks
+      SET status='done',
+          blocked_reason=null,
+          updated_at=now()
+      WHERE id=$1 AND status='running'
+      RETURNING *
+    `, [req.params.id]);
+    if (!taskResult.rows[0]) return null;
+    await client.query(`
+      UPDATE supervisor_runs
+      SET status='done',
+          finished_at=now(),
+          result=$2::jsonb
+      WHERE id=(
+        SELECT id FROM supervisor_runs
+        WHERE task_id=$1 AND status='running'
+        ORDER BY started_at DESC
+        LIMIT 1
+      )
+    `, [req.params.id, JSON.stringify(resultJson)]);
+    return taskResult.rows[0];
+  });
+  if (!result) return res.status(409).json({ message:"task is not running" });
+  res.json(result);
+});
+
+app.post("/tasks/:id/fail", requireDispatcherAuth, async (req, res) => {
+  const errorMessage = String(req.body?.error || "dispatcher execution failed");
+  const result = await withTransaction(async client => {
+    const current = await client.query(`
+      SELECT * FROM supervisor_tasks
+      WHERE id=$1 AND status='running'
+      FOR UPDATE
+    `, [req.params.id]);
+    if (!current.rows[0]) return null;
+
+    const disposition = failureDisposition(current.rows[0].retry_count, current.rows[0].max_retries);
+    const blockedReason = disposition.requiresHuman ? errorMessage : null;
+    const updated = await client.query(`
+      UPDATE supervisor_tasks
+      SET status=$2,
+          retry_count=$3,
+          requires_human=$4,
+          blocked_reason=$5,
+          updated_at=now()
+      WHERE id=$1
+      RETURNING *
+    `, [
+      req.params.id,
+      disposition.status,
+      disposition.retryCount,
+      disposition.requiresHuman,
+      blockedReason
+    ]);
+
+    await client.query(`
+      UPDATE supervisor_runs
+      SET status='failed',
+          finished_at=now(),
+          result=$2::jsonb
+      WHERE id=(
+        SELECT id FROM supervisor_runs
+        WHERE task_id=$1 AND status='running'
+        ORDER BY started_at DESC
+        LIMIT 1
+      )
+    `, [req.params.id, JSON.stringify({ error: errorMessage, retry: !disposition.requiresHuman })]);
+
+    return updated.rows[0];
+  });
+
+  if (!result) return res.status(409).json({ message:"task is not running" });
+  res.json(result);
 });
 
 async function main() {
@@ -256,7 +395,11 @@ async function main() {
   });
 }
 
-main().catch(error => {
-  console.error("fatal", error);
-  process.exit(1);
-});
+if (process.env.NODE_ENV !== "test") {
+  main().catch(error => {
+    console.error("fatal", error);
+    process.exit(1);
+  });
+}
+
+export { app };
