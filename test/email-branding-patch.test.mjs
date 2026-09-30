@@ -10,6 +10,11 @@ test('branding de e-mail está materializado diretamente no gateway', () => {
   assert.ok(source.includes('https://seta-comercial-web-production-93b8.up.railway.app/seta-it-logo.png'));
   assert.ok(!source.includes('azul-transparent'));
   assert.ok(source.includes('Atenciosamente,'));
+  assert.ok(source.includes('Gentileza confirmar recebimento.'));
+  assert.ok(source.includes('Consultoria em Arquitetura em AWS'));
+  assert.ok(source.includes('Soluções em Cyber Security (NOC e SOC) - 24x7'));
+  assert.ok(source.includes('Assistência técnica'));
+  assert.ok(source.includes('https://api.whatsapp.com/send?phone=11976611678'));
   assert.ok(source.includes('Marcéllo MMíra'));
   assert.ok(source.includes('mailto:${escapeHtml(OUTLOOK_SENDER_EMAIL)}'));
   assert.ok(source.includes('setatelecom.com.br'));
