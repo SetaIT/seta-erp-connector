@@ -23,6 +23,39 @@ const MICROSOFT_TENANT_ID = process.env.MICROSOFT_TENANT_ID;
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
 const OUTLOOK_SENDER_EMAIL = String(process.env.OUTLOOK_SENDER_EMAIL || '').trim().toLowerCase();
+const EMAIL_SENDER_PROFILES_JSON = String(process.env.EMAIL_SENDER_PROFILES_JSON || '').trim();
+let EMAIL_SENDER_PROFILES = {};
+try { EMAIL_SENDER_PROFILES = EMAIL_SENDER_PROFILES_JSON ? JSON.parse(EMAIL_SENDER_PROFILES_JSON) : {}; } catch { EMAIL_SENDER_PROFILES = {}; }
+
+function senderProfileFor(username) {
+  const key = String(username || '').trim().toLowerCase();
+  const configured = EMAIL_SENDER_PROFILES[key];
+  if (configured && typeof configured === 'object') {
+    const email = String(configured.email || '').trim().toLowerCase();
+    if (!email || !email.includes('@')) throw requestError('Remetente Outlook inválido para o usuário autenticado.', { username: key });
+    return {
+      username: key,
+      email,
+      displayName: String(configured.displayName || key),
+      title: String(configured.title || configured.department || 'Seta Telecom'),
+      department: String(configured.department || ''),
+      phone: String(configured.phone || '+55 (11) 3958-4929'),
+      whatsapp: String(configured.whatsapp || '11976611678').replace(/\D/g, ''),
+    };
+  }
+  if (OUTLOOK_SENDER_EMAIL) {
+    return {
+      username: key || 'legacy',
+      email: OUTLOOK_SENDER_EMAIL,
+      displayName: 'Seta Telecom',
+      title: 'Seta Telecom',
+      department: '',
+      phone: '+55 (11) 3958-4929',
+      whatsapp: '11976611678',
+    };
+  }
+  throw requestError('Nenhum remetente Outlook está configurado para este usuário.', { username: key });
+}
 const PROPOSAL_PUBLIC_BASE_URL = String(process.env.PROPOSAL_PUBLIC_BASE_URL || 'https://app.setatelecom.com.br/prop').replace(/\/$/, '');
 const EMAIL_LOGO_URL = String(process.env.EMAIL_LOGO_URL || 'https://seta-comercial-web-production-93b8.up.railway.app/seta-it-logo.png').trim();
 // SETA_EMAIL_BRANDING_V2
@@ -103,8 +136,7 @@ async function microsoftAccessToken() {
   const missing = [
     !MICROSOFT_TENANT_ID && 'MICROSOFT_TENANT_ID',
     !MICROSOFT_CLIENT_ID && 'MICROSOFT_CLIENT_ID',
-    !MICROSOFT_CLIENT_SECRET && 'MICROSOFT_CLIENT_SECRET',
-    !OUTLOOK_SENDER_EMAIL && 'OUTLOOK_SENDER_EMAIL'
+    !MICROSOFT_CLIENT_SECRET && 'MICROSOFT_CLIENT_SECRET'
   ].filter(Boolean);
   if (missing.length) {
     const err = new Error('Microsoft 365 nao configurado');
@@ -133,10 +165,12 @@ async function microsoftAccessToken() {
   throw err;
 }
 
-async function sendOutlookMail({ to, subject, html }) {
+async function sendOutlookMail({ to, subject, html, senderEmail }) {
   const token = await microsoftAccessToken();
+  const sender = String(senderEmail || OUTLOOK_SENDER_EMAIL || '').trim().toLowerCase();
+  if (!sender || !sender.includes('@')) throw requestError('Remetente Outlook não configurado.');
   const recipients = to.map(address => ({ emailAddress: { address } }));
-  const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(OUTLOOK_SENDER_EMAIL)}/sendMail`, {
+  const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -161,12 +195,17 @@ function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 }
 
-function proposalEmailTemplate({ contactName, proposalTitle, proposalNumber, proposalLink }) {
+function proposalEmailTemplate({ contactName, proposalTitle, proposalNumber, proposalLink, sender }) {
   const greeting = contactName ? `Olá, ${escapeHtml(contactName)}! Tudo bem?` : 'Olá! Tudo bem?';
   const safeTitle = escapeHtml(proposalTitle || `Sua Proposta de Solução - ${proposalNumber}`);
   const safeNumber = escapeHtml(proposalNumber);
   const safeLink = escapeHtml(proposalLink);
-  const whatsappUrl = 'https://api.whatsapp.com/send?phone=11976611678';
+  const whatsappPhone = String(sender?.whatsapp || '11976611678').replace(/\D/g, '');
+  const whatsappUrl = `https://api.whatsapp.com/send?phone=${whatsappPhone}`;
+  const senderName = escapeHtml(sender?.displayName || 'Seta Telecom');
+  const senderTitle = escapeHtml(sender?.title || sender?.department || 'Seta Telecom');
+  const senderEmail = escapeHtml(sender?.email || OUTLOOK_SENDER_EMAIL);
+  const senderPhone = escapeHtml(sender?.phone || '+55 (11) 3958-4929');
   const services = [
     'Consultoria em Arquitetura em AWS',
     'Locação de Equipamentos de Rede',
@@ -180,8 +219,8 @@ function proposalEmailTemplate({ contactName, proposalTitle, proposalNumber, pro
   ];
   const serviceText = services.map((item) => `- ${item}`).join('\n');
   const serviceHtml = services.map((item) => `<li style="margin:0 0 6px">${escapeHtml(item)}</li>`).join('');
-  const text = `${proposalTitle || `Sua Proposta de Solução - ${proposalNumber}`}\n\n${contactName ? `Olá, ${contactName}! Tudo bem?` : 'Olá! Tudo bem?'}\n\nObrigado pela oportunidade.\n\nAbaixo o link da proposta conforme solicitado.\n\nNúmero da Proposta: ${proposalNumber}\nLink da Proposta: ${proposalLink}\n\nGentileza confirmar recebimento.\n\nQualquer dúvida estou à disposição.\n\nSe preferir, pode me ligar ou me chamar no WhatsApp: ${whatsappUrl}\n\nConheça Nossos Serviços:\n\n${serviceText}\n\nMarcéllo MMíra\nBusiness Consultant\nSeta Telecom\n${OUTLOOK_SENDER_EMAIL}\n+55 (11) 3958-4929\nsetatelecom.com.br`;
-  const html = `<!doctype html><html><body style="margin:0;background:#ffffff;color:#172033;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.55"><div style="max-width:700px;margin:0 auto;padding:24px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;margin:0 0 28px"><tr><td style="padding:0 0 18px;border-bottom:3px solid #0754a6"><a href="https://setatelecom.com.br/" style="text-decoration:none"><img src="${EMAIL_LOGO_URL}" alt="Seta Telecom" width="220" style="display:block;width:220px;max-width:100%;height:auto;border:0"></a></td></tr></table><h1 style="font-size:24px;line-height:1.3;margin:0 0 28px">${safeTitle}</h1><p>${greeting}</p><p>Obrigado pela oportunidade.</p><p>Abaixo o link da proposta conforme solicitado.</p><p><strong>Número da Proposta: </strong>${safeNumber}</p><p><strong>Link da Proposta: </strong><a href="${safeLink}" style="color:#0754a6;font-weight:700">${safeLink}</a></p><p>Gentileza confirmar recebimento.</p><p>Qualquer dúvida estou à disposição.</p><p>Se preferir, pode me ligar ou me chamar no <a href="${whatsappUrl}" style="color:#0754a6;font-weight:700">WhatsApp</a>.</p><p><strong>Conheça Nossos Serviços:</strong></p><ul style="margin:0 0 24px;padding-left:22px">${serviceHtml}</ul><p style="margin:28px 0 10px">Atenciosamente,</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:620px;border-collapse:collapse;border-top:4px solid #0754a6;background:#f7f9fc"><tr><td width="185" style="width:185px;padding:20px;vertical-align:middle;background:#ffffff;border-right:1px solid #dbe3ec"><a href="https://setatelecom.com.br/" style="text-decoration:none"><img src="${EMAIL_LOGO_URL}" alt="Seta Telecom" width="150" style="display:block;width:150px;max-width:100%;height:auto;border:0"></a></td><td style="padding:20px;vertical-align:top"><div style="font-size:18px;line-height:1.25;font-weight:700;color:#17324d">Marcéllo MMíra</div><div style="margin-top:3px;font-size:13px;line-height:1.4;color:#53687c">Business Consultant</div><div style="margin-top:2px;font-size:13px;line-height:1.4;font-weight:700;color:#0754a6">Seta Telecom</div><table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;border-collapse:collapse;font-size:13px;line-height:1.55;color:#31465a"><tr><td style="padding:1px 9px 1px 0;font-weight:700;color:#0754a6">E</td><td style="padding:1px 0"><a href="mailto:${escapeHtml(OUTLOOK_SENDER_EMAIL)}" style="color:#31465a;text-decoration:none">${escapeHtml(OUTLOOK_SENDER_EMAIL)}</a></td></tr><tr><td style="padding:1px 9px 1px 0;font-weight:700;color:#0754a6">T</td><td style="padding:1px 0"><a href="${whatsappUrl}" style="color:#31465a;text-decoration:none">+55 (11) 3958-4929</a></td></tr><tr><td style="padding:1px 9px 1px 0;font-weight:700;color:#0754a6">W</td><td style="padding:1px 0"><a href="https://setatelecom.com.br/" style="color:#31465a;text-decoration:none">setatelecom.com.br</a></td></tr></table></td></tr></table><hr style="border:0;border-top:1px solid #d9dee7;margin:32px 0 20px"><p style="font-size:12px;color:#697386"><strong>Nota de Confidencialidade 1</strong><br>As informações contidas nesta proposta comercial ou e-mail são de caráter sigiloso, com intuito de evitar a divulgação a terceiros de qualquer informação trocada entre as partes que esteja diretamente relacionada ao serviço prestado ao cliente.</p><p style="font-size:12px;color:#697386"><strong>Nota de Confidencialidade 2</strong><br>Este termo de confidencialidade é firmado com o intuito de proibir a divulgação e utilização não autorizada das informações confidenciais trocadas entre as partes por ocasião da realização do serviço contratado pelo cliente, mediante proposta assinada pelo mesmo.</p></div></body></html>`;
+  const text = `${proposalTitle || `Sua Proposta de Solução - ${proposalNumber}`}\n\n${contactName ? `Olá, ${contactName}! Tudo bem?` : 'Olá! Tudo bem?'}\n\nObrigado pela oportunidade.\n\nAbaixo o link da proposta conforme solicitado.\n\nNúmero da Proposta: ${proposalNumber}\nLink da Proposta: ${proposalLink}\n\nGentileza confirmar recebimento.\n\nQualquer dúvida estou à disposição.\n\nSe preferir, pode me ligar ou me chamar no WhatsApp: ${whatsappUrl}\n\nConheça Nossos Serviços:\n\n${serviceText}\n\n${sender?.displayName || 'Seta Telecom'}\n${sender?.title || sender?.department || 'Seta Telecom'}\nSeta Telecom\n${sender?.email || OUTLOOK_SENDER_EMAIL}\n${sender?.phone || '+55 (11) 3958-4929'}\nsetatelecom.com.br`;
+  const html = `<!doctype html><html><body style="margin:0;background:#ffffff;color:#172033;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.55"><div style="max-width:700px;margin:0 auto;padding:24px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;margin:0 0 28px"><tr><td style="padding:0 0 18px;border-bottom:3px solid #0754a6"><a href="https://setatelecom.com.br/" style="text-decoration:none"><img src="${EMAIL_LOGO_URL}" alt="Seta Telecom" width="220" style="display:block;width:220px;max-width:100%;height:auto;border:0"></a></td></tr></table><h1 style="font-size:24px;line-height:1.3;margin:0 0 28px">${safeTitle}</h1><p>${greeting}</p><p>Obrigado pela oportunidade.</p><p>Abaixo o link da proposta conforme solicitado.</p><p><strong>Número da Proposta: </strong>${safeNumber}</p><p><strong>Link da Proposta: </strong><a href="${safeLink}" style="color:#0754a6;font-weight:700">${safeLink}</a></p><p>Gentileza confirmar recebimento.</p><p>Qualquer dúvida estou à disposição.</p><p>Se preferir, pode me ligar ou me chamar no <a href="${whatsappUrl}" style="color:#0754a6;font-weight:700">WhatsApp</a>.</p><p><strong>Conheça Nossos Serviços:</strong></p><ul style="margin:0 0 24px;padding-left:22px">${serviceHtml}</ul><p style="margin:28px 0 10px">Atenciosamente,</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:620px;border-collapse:collapse;border-top:4px solid #0754a6;background:#f7f9fc"><tr><td width="185" style="width:185px;padding:20px;vertical-align:middle;background:#ffffff;border-right:1px solid #dbe3ec"><a href="https://setatelecom.com.br/" style="text-decoration:none"><img src="${EMAIL_LOGO_URL}" alt="Seta Telecom" width="150" style="display:block;width:150px;max-width:100%;height:auto;border:0"></a></td><td style="padding:20px;vertical-align:top"><div style="font-size:18px;line-height:1.25;font-weight:700;color:#17324d">${senderName}</div><div style="margin-top:3px;font-size:13px;line-height:1.4;color:#53687c">${senderTitle}</div><div style="margin-top:2px;font-size:13px;line-height:1.4;font-weight:700;color:#0754a6">Seta Telecom</div><table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;border-collapse:collapse;font-size:13px;line-height:1.55;color:#31465a"><tr><td style="padding:1px 9px 1px 0;font-weight:700;color:#0754a6">E</td><td style="padding:1px 0"><a href="mailto:${senderEmail}" style="color:#31465a;text-decoration:none">${senderEmail}</a></td></tr><tr><td style="padding:1px 9px 1px 0;font-weight:700;color:#0754a6">T</td><td style="padding:1px 0"><a href="${whatsappUrl}" style="color:#31465a;text-decoration:none">${senderPhone}</a></td></tr><tr><td style="padding:1px 9px 1px 0;font-weight:700;color:#0754a6">W</td><td style="padding:1px 0"><a href="https://setatelecom.com.br/" style="color:#31465a;text-decoration:none">setatelecom.com.br</a></td></tr></table></td></tr></table><hr style="border:0;border-top:1px solid #d9dee7;margin:32px 0 20px"><p style="font-size:12px;color:#697386"><strong>Nota de Confidencialidade 1</strong><br>As informações contidas nesta proposta comercial ou e-mail são de caráter sigiloso, com intuito de evitar a divulgação a terceiros de qualquer informação trocada entre as partes que esteja diretamente relacionada ao serviço prestado ao cliente.</p><p style="font-size:12px;color:#697386"><strong>Nota de Confidencialidade 2</strong><br>Este termo de confidencialidade é firmado com o intuito de proibir a divulgação e utilização não autorizada das informações confidenciais trocadas entre as partes por ocasião da realização do serviço contratado pelo cliente, mediante proposta assinada pelo mesmo.</p></div></body></html>`;
   return { html, text };
 }
 
@@ -635,19 +674,22 @@ app.post('/erp/email/enviar-proposta', auth, async (req, res) => {
     if (!numeroProposta) throw requestError('numero_proposta e obrigatorio', { field: 'numero_proposta' });
     if (!linkProposta || !/^https:\/\//i.test(linkProposta)) throw requestError('link_proposta HTTPS e obrigatorio', { field: 'link_proposta' });
 
+    const senderProfile = senderProfileFor(body.remetente_usuario);
     const template = proposalEmailTemplate({
       contactName: String(body.nome_contato || '').trim(),
       proposalTitle: String(body.titulo_proposta || 'Sua Proposta Comercial').trim(),
       proposalNumber: numeroProposta,
       proposalLink: linkProposta,
+      sender: senderProfile,
       returnDate: String(body.data_retorno || '').trim(),
       customBody: String(body.corpo || body.body || '').trim()
     });
-    const sent = await sendOutlookMail({ to: destinatarios, subject: assunto, html: template.html });
+    const sent = await sendOutlookMail({ to: destinatarios, subject: assunto, html: template.html, senderEmail: senderProfile.email });
     res.status(201).json({
       status: 'sent',
       provider: 'microsoft_graph',
-      sender: OUTLOOK_SENDER_EMAIL,
+      sender: senderProfile.email,
+      sender_user: senderProfile.username,
       recipients: destinatarios,
       subject: assunto,
       sent_at: new Date().toISOString(),
