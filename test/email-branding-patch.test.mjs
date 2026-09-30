@@ -15,7 +15,10 @@ test('branding de e-mail está materializado diretamente no gateway', () => {
   assert.ok(source.includes('Soluções em Cyber Security (NOC e SOC) - 24x7'));
   assert.ok(source.includes('Assistência técnica'));
   assert.ok(source.includes('https://api.whatsapp.com/send?phone=11976611678'));
-  assert.ok(source.includes('Marcéllo MMíra'));
+  assert.ok(source.includes('senderProfileFor'));
+  assert.ok(source.includes('EMAIL_SENDER_PROFILES_JSON'));
+  assert.ok(source.includes('senderName'));
+  assert.ok(source.includes('senderEmail'));
   assert.ok(source.includes('mailto:${escapeHtml(OUTLOOK_SENDER_EMAIL)}'));
   assert.ok(source.includes('setatelecom.com.br'));
 });
@@ -23,4 +26,11 @@ test('branding de e-mail está materializado diretamente no gateway', () => {
 test('o startup não depende de patch mutável de branding', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.ok(!pkg.scripts.start.includes('patch-email-branding'));
+});
+
+
+test('o remetente Outlook é resolvido pelo usuário autenticado e não pelo formulário', () => {
+  assert.ok(source.includes('remetente_usuario'));
+  assert.ok(source.includes('senderProfile.email'));
+  assert.match(source, /users\/\$\{encodeURIComponent\(sender\)\}\/sendMail/);
 });
