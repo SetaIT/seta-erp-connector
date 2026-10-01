@@ -34,3 +34,11 @@ test('o remetente Outlook é resolvido pelo usuário autenticado e não pelo for
   assert.ok(source.includes('senderProfile.email'));
   assert.match(source, /users\/\$\{encodeURIComponent\(sender\)\}\/sendMail/);
 });
+
+
+test('consulta de inbox usa a mailbox do usuário autenticado e é somente leitura', () => {
+  assert.ok(source.includes("app.get('/erp/email/solicitacoes'"));
+  assert.ok(source.includes('listOutlookProposalMessages'));
+  assert.ok(source.includes('/mailFolders/inbox/messages?'));
+  assert.ok(source.includes('senderProfileFor(username)'));
+});
