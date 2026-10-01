@@ -183,10 +183,17 @@ async function listOutlookProposalMessages({ username, limit = 40, days = 30 }) 
   );
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const err = new Error(data?.error?.message || `Microsoft Graph error ${response.status}`);
+    const graphCode = String(data?.error?.code || '');
+    const graphMessage = String(data?.error?.message || '');
+    const accessDenied = response.status === 403 || /access.?denied/i.test(graphCode) || /access is denied/i.test(graphMessage);
+    const err = new Error(
+      accessDenied
+        ? 'O Microsoft 365 negou a leitura da caixa. Adicione Microsoft Graph > Application permission > Mail.Read à aplicação usada pelo ERP, conceda Admin Consent e confirme que a mailbox está no escopo permitido do Exchange.'
+        : (graphMessage || `Microsoft Graph error ${response.status}`)
+    );
     err.status = response.status;
     err.source = 'microsoft';
-    err.data = { code: data?.error?.code || null };
+    err.data = { code: graphCode || null, permission_required: accessDenied ? 'Mail.Read (Application)' : null };
     throw err;
   }
   return {
