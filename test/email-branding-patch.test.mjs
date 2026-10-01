@@ -14,12 +14,12 @@ test('branding de e-mail está materializado diretamente no gateway', () => {
   assert.ok(source.includes('Consultoria em Arquitetura em AWS'));
   assert.ok(source.includes('Soluções em Cyber Security (NOC e SOC) - 24x7'));
   assert.ok(source.includes('Assistência técnica'));
-  assert.ok(source.includes('https://api.whatsapp.com/send?phone=11976611678'));
+  assert.ok(source.includes('const whatsappUrl = `https://api.whatsapp.com/send?phone=${whatsappPhone}`'));
   assert.ok(source.includes('senderProfileFor'));
   assert.ok(source.includes('EMAIL_SENDER_PROFILES_JSON'));
   assert.ok(source.includes('senderName'));
   assert.ok(source.includes('senderEmail'));
-  assert.ok(source.includes('mailto:${escapeHtml(OUTLOOK_SENDER_EMAIL)}'));
+  assert.ok(source.includes('href="mailto:${senderEmail}"'));
   assert.ok(source.includes('setatelecom.com.br'));
 });
 
