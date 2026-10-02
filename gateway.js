@@ -843,7 +843,40 @@ app.post('/erp/hubspot/emails/registrar-envio', auth, async (req, res) => {
     const associationResults = [];
     const associationFailures = [];
     if (body.deal_id) associationResults.push({ type: 'deals', id: String(body.deal_id), mode: 'atomic_create' });
-    const targets = [body.company_id ? { type: 'companies', id: body.company_id } : null, ...(Array.isArray(body.contact_ids) ? body.contact_ids.map(id => ({ type: 'contacts', id })) : [])].filter(Boolean);
+
+    const explicitContactIds = Array.isArray(body.contact_ids)
+      ? body.contact_ids.map(id => String(id || '').trim()).filter(Boolean)
+      : [];
+    const resolvedContactIds = new Set(explicitContactIds);
+    for (const recipient of destinatarios) {
+      try {
+        const search = await hubspotRequest('/crm/v3/objects/contacts/search', {
+          method: 'POST',
+          body: {
+            filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: recipient.email }] }],
+            limit: 2,
+            properties: ['email']
+          }
+        });
+        const matches = Array.isArray(search?.results) ? search.results : [];
+        if (matches.length === 1 && matches[0]?.id) {
+          resolvedContactIds.add(String(matches[0].id));
+        }
+      } catch (err) {
+        associationFailures.push({
+          target: { type: 'contacts', email: recipient.email },
+          status: err.status || 500,
+          details: err.data || err.message,
+          phase: 'resolve_contact_by_email'
+        });
+      }
+    }
+
+    const targets = [
+      body.company_id ? { type: 'companies', id: body.company_id } : null,
+      ...[...resolvedContactIds].map(id => ({ type: 'contacts', id }))
+    ].filter(Boolean);
+
     for (const target of targets) {
       try { await associateEmail(email.id, target.type, target.id); associationResults.push(target); }
       catch (err) { associationFailures.push({ target, status: err.status || 500, details: err.data || err.message }); }
