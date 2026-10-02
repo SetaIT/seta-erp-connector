@@ -165,10 +165,10 @@ async function microsoftAccessToken() {
   throw err;
 }
 
-async function listOutlookProposalMessages({ username, limit = 40, days = 30, from, to }) {
+async function listOutlookProposalMessages({ username, limit = 200, days = 30, from, to }) {
   const profile = senderProfileFor(username);
   const token = await microsoftAccessToken();
-  const safeLimit = Math.min(200, Math.max(1, Number(limit) || 40));
+  const pageSize = Math.min(200, Math.max(1, Number(limit) || 200));
   const safeDays = Math.min(3660, Math.max(1, Number(days) || 30));
   const parsedFrom = from ? new Date(String(from)) : null;
   const parsedTo = to ? new Date(String(to)) : null;
@@ -179,51 +179,74 @@ async function listOutlookProposalMessages({ username, limit = 40, days = 30, fr
     ? `receivedDateTime ge ${since} and receivedDateTime lt ${until}`
     : `receivedDateTime ge ${since}`;
   const params = new URLSearchParams({
-    '$top': String(safeLimit),
+    '$top': String(pageSize),
     '$select': 'id,conversationId,subject,receivedDateTime,from,bodyPreview,body,hasAttachments,webLink,isRead',
     '$filter': filter,
     '$orderby': 'receivedDateTime desc'
   });
-  const response = await fetch(
-    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(profile.email)}/mailFolders/inbox/messages?${params.toString()}`,
-    { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }
-  );
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const graphCode = String(data?.error?.code || '');
-    const graphMessage = String(data?.error?.message || '');
-    const accessDenied = response.status === 403 || /access.?denied/i.test(graphCode) || /access is denied/i.test(graphMessage);
-    const err = new Error(
-      accessDenied
-        ? 'O Microsoft 365 negou a leitura da caixa. Adicione Microsoft Graph > Application permission > Mail.Read à aplicação usada pelo ERP, conceda Admin Consent e confirme que a mailbox está no escopo permitido do Exchange.'
-        : (graphMessage || `Microsoft Graph error ${response.status}`)
-    );
-    err.status = response.status;
-    err.source = 'microsoft';
-    err.data = { code: graphCode || null, permission_required: accessDenied ? 'Mail.Read (Application)' : null };
-    throw err;
+
+  let nextUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(profile.email)}/mailFolders/inbox/messages?${params.toString()}`;
+  const rawMessages = [];
+  let pages = 0;
+  const maxPages = 25;
+  let truncated = false;
+
+  while (nextUrl && pages < maxPages) {
+    const response = await fetch(nextUrl, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const graphCode = String(data?.error?.code || '');
+      const graphMessage = String(data?.error?.message || '');
+      const accessDenied = response.status === 403 || /access.?denied/i.test(graphCode) || /access is denied/i.test(graphMessage);
+      const err = new Error(
+        accessDenied
+          ? 'O Microsoft 365 negou a leitura da caixa. Adicione Microsoft Graph > Application permission > Mail.Read à aplicação usada pelo ERP, conceda Admin Consent e confirme que a mailbox está no escopo permitido do Exchange.'
+          : (graphMessage || `Microsoft Graph error ${response.status}`)
+      );
+      err.status = response.status;
+      err.source = 'microsoft';
+      err.data = { code: graphCode || null, permission_required: accessDenied ? 'Mail.Read (Application)' : null };
+      throw err;
+    }
+
+    if (Array.isArray(data?.value)) rawMessages.push(...data.value);
+    nextUrl = String(data?.['@odata.nextLink'] || '');
+    pages += 1;
   }
+
+  if (nextUrl) truncated = true;
+
+  const messages = rawMessages.map(message => ({
+    id: String(message?.id || ''),
+    conversationId: String(message?.conversationId || ''),
+    subject: String(message?.subject || ''),
+    receivedDateTime: message?.receivedDateTime || null,
+    from: {
+      name: String(message?.from?.emailAddress?.name || ''),
+      email: String(message?.from?.emailAddress?.address || '').toLowerCase()
+    },
+    bodyPreview: String(message?.bodyPreview || ''),
+    body: {
+      contentType: String(message?.body?.contentType || ''),
+      content: String(message?.body?.content || '')
+    },
+    hasAttachments: Boolean(message?.hasAttachments),
+    webLink: String(message?.webLink || ''),
+    isRead: Boolean(message?.isRead)
+  })).filter(message => message.id);
+
   return {
     mailbox: profile.email,
     username: profile.username,
-    messages: Array.isArray(data?.value) ? data.value.map(message => ({
-      id: String(message?.id || ''),
-      conversationId: String(message?.conversationId || ''),
-      subject: String(message?.subject || ''),
-      receivedDateTime: message?.receivedDateTime || null,
-      from: {
-        name: String(message?.from?.emailAddress?.name || ''),
-        email: String(message?.from?.emailAddress?.address || '').toLowerCase()
-      },
-      bodyPreview: String(message?.bodyPreview || ''),
-      body: {
-        contentType: String(message?.body?.contentType || ''),
-        content: String(message?.body?.content || '')
-      },
-      hasAttachments: Boolean(message?.hasAttachments),
-      webLink: String(message?.webLink || ''),
-      isRead: Boolean(message?.isRead)
-    })).filter(message => message.id) : []
+    messages,
+    pagination: {
+      pages,
+      pageSize,
+      totalFetched: messages.length,
+      truncated
+    }
   };
 }
 
