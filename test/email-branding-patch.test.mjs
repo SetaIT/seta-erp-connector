@@ -58,3 +58,11 @@ test('sincronizacao pagina todos os resultados do periodo e informa truncamento'
   assert.ok(source.includes("totalFetched: messages.length"));
   assert.ok(source.includes("truncated"));
 });
+
+
+test('registro de email resolve destinatario e associa contato automaticamente', () => {
+  assert.ok(source.includes("filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: recipient.email }] }]"));
+  assert.ok(source.includes("resolvedContactIds.add(String(matches[0].id))"));
+  assert.ok(source.includes("...resolvedContactIds"));
+  assert.ok(source.includes("phase: 'resolve_contact_by_email'"));
+});
