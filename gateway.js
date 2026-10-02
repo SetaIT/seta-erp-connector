@@ -165,16 +165,23 @@ async function microsoftAccessToken() {
   throw err;
 }
 
-async function listOutlookProposalMessages({ username, limit = 40, days = 30 }) {
+async function listOutlookProposalMessages({ username, limit = 40, days = 30, from, to }) {
   const profile = senderProfileFor(username);
   const token = await microsoftAccessToken();
-  const safeLimit = Math.min(50, Math.max(1, Number(limit) || 40));
-  const safeDays = Math.min(180, Math.max(1, Number(days) || 30));
-  const since = new Date(Date.now() - safeDays * 86400000).toISOString();
+  const safeLimit = Math.min(200, Math.max(1, Number(limit) || 40));
+  const safeDays = Math.min(3660, Math.max(1, Number(days) || 30));
+  const parsedFrom = from ? new Date(String(from)) : null;
+  const parsedTo = to ? new Date(String(to)) : null;
+  const hasExplicitRange = parsedFrom && parsedTo && !Number.isNaN(parsedFrom.getTime()) && !Number.isNaN(parsedTo.getTime()) && parsedFrom < parsedTo;
+  const since = hasExplicitRange ? parsedFrom.toISOString() : new Date(Date.now() - safeDays * 86400000).toISOString();
+  const until = hasExplicitRange ? parsedTo.toISOString() : null;
+  const filter = until
+    ? `receivedDateTime ge ${since} and receivedDateTime lt ${until}`
+    : `receivedDateTime ge ${since}`;
   const params = new URLSearchParams({
     '$top': String(safeLimit),
     '$select': 'id,conversationId,subject,receivedDateTime,from,bodyPreview,body,hasAttachments,webLink,isRead',
-    '$filter': `receivedDateTime ge ${since}`,
+    '$filter': filter,
     '$orderby': 'receivedDateTime desc'
   });
   const response = await fetch(
@@ -718,7 +725,9 @@ app.get('/erp/email/solicitacoes', auth, async (req, res) => {
     const result = await listOutlookProposalMessages({
       username,
       limit: req.query.limit,
-      days: req.query.days
+      days: req.query.days,
+      from: req.query.from,
+      to: req.query.to
     });
     res.json({ status: 'success', ...result });
   } catch (err) {
