@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isDispatcherAuthorized, failureDisposition } from "../src/index.mjs";
+import { isDispatcherAuthorized, failureDisposition, isUuid } from "../src/index.mjs";
 
 test("dispatcher auth rejects when token is missing", () => {
   assert.equal(isDispatcherAuthorized({ authorization: "Bearer abc" }, ""), false);
@@ -32,4 +32,11 @@ test("failure blocks when max retries reached", () => {
     status: "blocked",
     requiresHuman: true
   });
+});
+
+
+test("task id validation accepts UUIDs and rejects semantic slugs", () => {
+  assert.equal(isUuid("d52f9c9a-7e89-4575-828d-24cc4c3af9b1"), true);
+  assert.equal(isUuid("investigate-roadmap-status"), false);
+  assert.equal(isUuid("dispenser-checkpoint"), false);
 });
