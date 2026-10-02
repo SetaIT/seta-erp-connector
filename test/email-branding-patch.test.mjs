@@ -50,3 +50,11 @@ test('sincronizacao do Outlook aceita intervalo explicito de datas', () => {
   assert.ok(source.includes('receivedDateTime ge'));
   assert.ok(source.includes('receivedDateTime lt'));
 });
+
+
+test('sincronizacao pagina todos os resultados do periodo e informa truncamento', () => {
+  assert.ok(source.includes("@odata.nextLink"));
+  assert.ok(source.includes("while (nextUrl && pages < maxPages)"));
+  assert.ok(source.includes("totalFetched: messages.length"));
+  assert.ok(source.includes("truncated"));
+});
