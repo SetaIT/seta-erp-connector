@@ -42,3 +42,11 @@ test('consulta de inbox usa a mailbox do usuário autenticado e é somente leitu
   assert.ok(source.includes('/mailFolders/inbox/messages?'));
   assert.ok(source.includes('senderProfileFor(username)'));
 });
+
+
+test('sincronizacao do Outlook aceita intervalo explicito de datas', () => {
+  assert.ok(source.includes('from: req.query.from'));
+  assert.ok(source.includes('to: req.query.to'));
+  assert.ok(source.includes('receivedDateTime ge'));
+  assert.ok(source.includes('receivedDateTime lt'));
+});
