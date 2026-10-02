@@ -48,6 +48,10 @@ export function isDispatcherAuthorized(headers, token = DISPATCHER_TOKEN) {
     .some(value => value === token || value === expectedBearer);
 }
 
+export function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
+}
+
 export function failureDisposition(retryCount, maxRetries) {
   const nextRetryCount = Number(retryCount || 0) + 1;
   const blocked = nextRetryCount >= Number(maxRetries || 0);
@@ -278,6 +282,7 @@ app.post("/events", requireDispatcherAuth, async (req, res) => {
 });
 
 app.post("/tasks/:id/claim", requireDispatcherAuth, async (req, res) => {
+  if (!isUuid(req.params.id)) return res.status(400).json({ message:"task id must be a UUID" });
   const agent = String(req.body?.agent || "supervisor-executivo");
   const runId = crypto.randomUUID();
   const result = await withTransaction(async client => {
@@ -303,6 +308,7 @@ app.post("/tasks/:id/claim", requireDispatcherAuth, async (req, res) => {
 });
 
 app.post("/tasks/:id/complete", requireDispatcherAuth, async (req, res) => {
+  if (!isUuid(req.params.id)) return res.status(400).json({ message:"task id must be a UUID" });
   const resultJson = req.body?.result && typeof req.body.result === "object"
     ? req.body.result
     : { message: String(req.body?.result || "completed") };
@@ -335,6 +341,7 @@ app.post("/tasks/:id/complete", requireDispatcherAuth, async (req, res) => {
 });
 
 app.post("/tasks/:id/fail", requireDispatcherAuth, async (req, res) => {
+  if (!isUuid(req.params.id)) return res.status(400).json({ message:"task id must be a UUID" });
   const errorMessage = String(req.body?.error || "dispatcher execution failed");
   const result = await withTransaction(async client => {
     const current = await client.query(`
