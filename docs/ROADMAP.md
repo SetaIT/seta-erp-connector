@@ -131,8 +131,8 @@ Controles obrigatorios:
 - [x] credenciais do MCP oficial armazenadas no Railway de producao;
 - [x] cliente MCP remoto no `erp-supervisor-daemon`;
 - [x] modo `read-only` como padrao;
-- [ ] smoke E2E de leitura validado em producao;
-- [ ] inventario e classificacao das tools expostas pelo MCP oficial;
+- [x] smoke E2E de leitura validado em producao (`initialize -> tools/list -> tools/call`, tool `listar_recursos`);
+- [ ] inventario e classificacao completa das tools expostas pelo MCP oficial (5 tools detectadas; `listar_recursos` validada como leitura);
 - [ ] rate limit centralizado;
 - [ ] whitelist de tools de leitura;
 - [ ] whitelist separada de tools de escrita;
