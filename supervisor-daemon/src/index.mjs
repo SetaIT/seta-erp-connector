@@ -10,6 +10,10 @@ const HEARTBEAT_MS = Number(process.env.SUPERVISOR_HEARTBEAT_MS || 30000);
 const POLL_MS = Number(process.env.SUPERVISOR_POLL_MS || 15000);
 const INSTANCE_ID = process.env.RAILWAY_REPLICA_ID || crypto.randomUUID();
 const AUTONOMY_MODE = process.env.SUPERVISOR_AUTONOMY_MODE || "autonomous";
+const GESTAOCLICK_MCP_URL = String(process.env.GESTAOCLICK_MCP_URL || "").trim();
+const GESTAOCLICK_ACCESS_TOKEN = String(process.env.GESTAOCLICK_ACCESS_TOKEN || "").trim();
+const GESTAOCLICK_SECRET_ACCESS_TOKEN = String(process.env.GESTAOCLICK_SECRET_ACCESS_TOKEN || "").trim();
+const GESTAOCLICK_MCP_READ_ONLY = String(process.env.GESTAOCLICK_MCP_READ_ONLY || "true").toLowerCase() !== "false";
 const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL }) : null;
 
 const app = express();
@@ -70,6 +74,90 @@ function requireDispatcherAuth(req, res, next) {
     return res.status(401).json({ message: "unauthorized" });
   }
   next();
+}
+
+function gestaoclickMcpConfigured() {
+  return Boolean(GESTAOCLICK_MCP_URL && GESTAOCLICK_ACCESS_TOKEN && GESTAOCLICK_SECRET_ACCESS_TOKEN);
+}
+
+function parseMcpPayload(contentType, raw) {
+  if (!raw) return null;
+  if (String(contentType || "").includes("text/event-stream")) {
+    const payloads = String(raw)
+      .split(/\r?\n/)
+      .filter(line => line.startsWith("data:"))
+      .map(line => line.slice(5).trim())
+      .filter(Boolean);
+    for (let index = payloads.length - 1; index >= 0; index -= 1) {
+      try { return JSON.parse(payloads[index]); } catch {}
+    }
+    return null;
+  }
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+async function gestaoclickMcpRequest(payload, sessionId = "") {
+  if (!gestaoclickMcpConfigured()) throw new Error("GestaoClick MCP is not configured");
+  const response = await fetch(GESTAOCLICK_MCP_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "accept": "application/json, text/event-stream",
+      "access-token": GESTAOCLICK_ACCESS_TOKEN,
+      "secret-access-token": GESTAOCLICK_SECRET_ACCESS_TOKEN,
+      ...(sessionId ? { "mcp-session-id": sessionId } : {})
+    },
+    body: JSON.stringify(payload)
+  });
+  const raw = await response.text();
+  if (!response.ok) {
+    throw new Error(`GestaoClick MCP HTTP ${response.status}: ${raw.slice(0, 300)}`);
+  }
+  return {
+    body: parseMcpPayload(response.headers.get("content-type"), raw),
+    sessionId: response.headers.get("mcp-session-id") || sessionId
+  };
+}
+
+async function openGestaoClickMcpSession() {
+  const initialized = await gestaoclickMcpRequest({
+    jsonrpc: "2.0",
+    id: crypto.randomUUID(),
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-03-26",
+      capabilities: {},
+      clientInfo: { name: "seta-erp-supervisor-daemon", version: "0.3.0" }
+    }
+  });
+  const sessionId = initialized.sessionId;
+  await gestaoclickMcpRequest({
+    jsonrpc: "2.0",
+    method: "notifications/initialized",
+    params: {}
+  }, sessionId);
+  return { sessionId, initialize: initialized.body };
+}
+
+async function listGestaoClickMcpTools() {
+  const session = await openGestaoClickMcpSession();
+  const listed = await gestaoclickMcpRequest({
+    jsonrpc: "2.0",
+    id: crypto.randomUUID(),
+    method: "tools/list",
+    params: {}
+  }, session.sessionId);
+  const tools = listed.body?.result?.tools || [];
+  return {
+    protocolVersion: session.initialize?.result?.protocolVersion || null,
+    serverInfo: session.initialize?.result?.serverInfo || null,
+    count: tools.length,
+    tools: tools.map(tool => ({
+      name: tool?.name || "",
+      description: tool?.description || "",
+      inputSchema: tool?.inputSchema || null
+    }))
+  };
 }
 
 async function ensureSchema() {
@@ -215,6 +303,8 @@ app.get("/health", async (_req, res) => {
       instanceId:INSTANCE_ID,
       autonomyMode:AUTONOMY_MODE,
       dispatcherAuth:DISPATCHER_TOKEN ? "configured" : "missing",
+      gestaoclickMcp: gestaoclickMcpConfigured() ? "configured" : "missing",
+      gestaoclickMcpMode: GESTAOCLICK_MCP_READ_ONLY ? "read-only" : "write-enabled",
       database:db.rows[0]?.ok === 1 ? "ok" : "unknown",
       lastHeartbeatAt,
       lastPollAt,
@@ -222,6 +312,15 @@ app.get("/health", async (_req, res) => {
     });
   } catch (error) {
     res.status(503).json({ status:"error", message:error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.get("/mcp/gestaoclick/tools", requireDispatcherAuth, async (_req, res) => {
+  try {
+    const result = await listGestaoClickMcpTools();
+    res.json({ status: "ok", mode: GESTAOCLICK_MCP_READ_ONLY ? "read-only" : "write-enabled", ...result });
+  } catch (error) {
+    res.status(502).json({ status: "error", message: error instanceof Error ? error.message : String(error) });
   }
 });
 
