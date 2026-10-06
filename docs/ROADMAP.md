@@ -23,6 +23,21 @@ PLANEJADA -> EM DESENVOLVIMENTO -> CODE REVIEW -> QA -> DEPLOY -> SMOKE TEST -> 
 
 Em caso de falha: FALHOU -> DIAGNOSTICO -> CORRECAO -> QA.
 
+## Prioridades executivas atuais
+
+A ordem de execucao passa a ser:
+
+- **P0 - Estabilizar criacao e edicao de propostas em producao**, incluindo pagamentos, idempotencia e regressao;
+- **P1 - Validar o MCP oficial do GestaoClick em producao no modo leitura**, com `initialize`, `tools/list` e chamada real somente leitura;
+- **P2 - Implementar rate limit centralizado para acessos ao GestaoClick**, respeitando o limite oficial de 3 requisicoes por segundo e 30.000 por dia por empresa;
+- **P3 - Liberar operacoes MCP de escrita apenas com whitelist, preview, confirmacao e auditoria**;
+- **P4 - Concluir CRUD de propostas exclusivamente por numero comercial para o usuario**;
+- **P5 - Consolidar observabilidade, correlation ID, classificacao de incidentes e rollback validado**;
+- **P6 - Avaliar reducao gradual do `seta-erp-connector` somente onde o MCP oficial cobrir a mesma operacao com seguranca equivalente**;
+- **P7 - Reavaliar a migracao para Cloud Run apos estabilizacao funcional e operacional**.
+
+O MCP oficial do GestaoClick e uma integracao direta do Supervisor Comercial. O `seta-erp-mcp` deixa de ser requisito intermediario para o acesso ao GestaoClick, e o `seta-erp-connector` permanece enquanto houver regras comerciais, reconciliacao, idempotencia ou compatibilidade nao cobertas com seguranca pelo MCP oficial.
+
 ## Fase 1 - QA automatico e disciplina de entrega [EM IMPLEMENTACAO]
 - [x] comando `npm run qa`;
 - [x] validacao JSON dos arquivos criticos;
@@ -103,10 +118,27 @@ ChatGPT / App MCP -> Google Cloud Run -> Betel ERP / HubSpot / Outlook
 
 GitHub -> QA -> Build -> Deploy Cloud Run -> Smoke Test -> Aprovacao automatizada
 
-## Fase 6 - MCP [PROXIMA EVOLUCAO]
-Depois da estabilizacao da arquitetura atual e da migracao de producao para Cloud Run, migrar a superficie de ferramentas para um App MCP Seta Telecom, mantendo a camada de regras e orquestracao desacoplada do provedor de infraestrutura.
+## Fase 6 - MCP [ANTECIPADA / EM IMPLEMENTACAO]
+A integracao MCP foi antecipada porque o GestaoClick passou a disponibilizar um MCP oficial. Nesta fase, o Supervisor Comercial se conecta diretamente ao MCP oficial em producao, inicialmente em modo leitura. Escritas permanecem bloqueadas ate existir whitelist, rate limit, auditoria e controles de confirmacao.
 
-ChatGPT -> App MCP Seta Telecom -> Cloud Run -> Betel ERP / HubSpot / Outlook
+Arquitetura atual:
+
+Supervisor Comercial -> MCP oficial GestaoClick -> ERP producao
+
+O App MCP Seta Telecom continua como superficie propria para regras e orquestracao que nao devem depender do provedor. Cloud Run deixa de ser pre-requisito para validar o MCP oficial e passa a ser uma decisao de infraestrutura posterior.
+
+Controles obrigatorios:
+- [x] credenciais do MCP oficial armazenadas no Railway de producao;
+- [x] cliente MCP remoto no `erp-supervisor-daemon`;
+- [x] modo `read-only` como padrao;
+- [ ] smoke E2E de leitura validado em producao;
+- [ ] inventario e classificacao das tools expostas pelo MCP oficial;
+- [ ] rate limit centralizado;
+- [ ] whitelist de tools de leitura;
+- [ ] whitelist separada de tools de escrita;
+- [ ] auditoria por correlation ID de toda chamada MCP;
+- [ ] preview e confirmacao para escrita comercial;
+- [ ] rollback/fallback para o connector nas operacoes criticas.
 
 Ferramentas alvo:
 - consultar_proposta
