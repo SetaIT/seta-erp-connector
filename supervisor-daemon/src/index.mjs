@@ -188,6 +188,7 @@ async function runGestaoClickReadOnlySmoke() {
     protocolVersion: session.initialize?.result?.protocolVersion || null,
     serverName: session.initialize?.result?.serverInfo?.name || null,
     toolCount: tools.length,
+    toolNames: tools.map(tool => tool.name),
     readOnlyCandidates: tools.filter(safeReadOnlyTool).map(tool => tool.name)
   };
   if (!selected) {
