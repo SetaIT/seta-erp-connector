@@ -155,9 +155,63 @@ async function listGestaoClickMcpTools() {
     tools: tools.map(tool => ({
       name: tool?.name || "",
       description: tool?.description || "",
-      inputSchema: tool?.inputSchema || null
+      inputSchema: tool?.inputSchema || null,
+      annotations: tool?.annotations || null
     }))
   };
+}
+
+function safeReadOnlyTool(tool) {
+  const name = String(tool?.name || "").toLowerCase();
+  const description = String(tool?.description || "").toLowerCase();
+  const annotations = tool?.annotations || {};
+  const writePattern = /(criar|cadastrar|editar|alterar|atualizar|excluir|deletar|remover|cancelar|emitir|enviar|registrar|create|update|delete|remove|cancel|send|write|post|put|patch)/i;
+  const readPattern = /(listar|consultar|buscar|visualizar|obter|pesquisar|list|get|read|search|find|lookup|query)/i;
+  const required = Array.isArray(tool?.inputSchema?.required) ? tool.inputSchema.required : [];
+  if (writePattern.test(name) || writePattern.test(description)) return false;
+  if (annotations.readOnlyHint === true && required.length === 0) return true;
+  return required.length === 0 && (readPattern.test(name) || readPattern.test(description));
+}
+
+async function runGestaoClickReadOnlySmoke() {
+  if (!GESTAOCLICK_MCP_READ_ONLY) throw new Error("GestaoClick MCP smoke requires read-only mode");
+  const session = await openGestaoClickMcpSession();
+  const listed = await gestaoclickMcpRequest({
+    jsonrpc: "2.0",
+    id: crypto.randomUUID(),
+    method: "tools/list",
+    params: {}
+  }, session.sessionId);
+  const tools = listed.body?.result?.tools || [];
+  const selected = tools.find(safeReadOnlyTool);
+  const summary = {
+    protocolVersion: session.initialize?.result?.protocolVersion || null,
+    serverName: session.initialize?.result?.serverInfo?.name || null,
+    toolCount: tools.length,
+    readOnlyCandidates: tools.filter(safeReadOnlyTool).map(tool => tool.name)
+  };
+  if (!selected) {
+    console.log("gestaoclick-mcp-smoke", JSON.stringify({ ...summary, status: "discovery-ok-no-zero-arg-read-tool" }));
+    return { ...summary, status: "discovery-ok-no-zero-arg-read-tool", selectedTool: null };
+  }
+  const called = await gestaoclickMcpRequest({
+    jsonrpc: "2.0",
+    id: crypto.randomUUID(),
+    method: "tools/call",
+    params: { name: selected.name, arguments: {} }
+  }, session.sessionId);
+  const isError = Boolean(called.body?.result?.isError);
+  const content = Array.isArray(called.body?.result?.content) ? called.body.result.content : [];
+  if (isError) throw new Error(`GestaoClick MCP read smoke tool failed: ${selected.name}`);
+  const result = {
+    ...summary,
+    status: "ok",
+    selectedTool: selected.name,
+    contentItems: content.length,
+    contentTypes: [...new Set(content.map(item => item?.type).filter(Boolean))]
+  };
+  console.log("gestaoclick-mcp-smoke", JSON.stringify(result));
+  return result;
 }
 
 async function ensureSchema() {
@@ -494,6 +548,15 @@ async function main() {
   await ensureSchema();
   await heartbeat();
   await supervisorCycle();
+  if (gestaoclickMcpConfigured()) {
+    try {
+      await runGestaoClickReadOnlySmoke();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("gestaoclick-mcp-smoke-error", message);
+      lastError = message;
+    }
+  }
   setInterval(() => heartbeat().catch(err => { lastError = err.message; console.error(err); }), HEARTBEAT_MS).unref();
   setInterval(() => supervisorCycle(), POLL_MS).unref();
   app.listen(PORT, "0.0.0.0", () => {
