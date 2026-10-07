@@ -9,6 +9,7 @@ import {
   sanitizePayload,
   structuredLog,
 } from './commercial-write-reconciliation.js';
+import { applyConfiguredPaymentTerms } from './proposal-payment-terms.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -1316,6 +1317,16 @@ app.post('/erp/orcamentos', async (req, res) => {
     } = req.body || {};
     betelBody.introducao = introduction;
     if (metadata.prazo_entrega_data) betelBody.prazo_entrega = metadata.prazo_entrega_data;
+
+    const { typeRule } = getProposalTypeRule(tipo_proposta);
+    const paymentApplication = applyConfiguredPaymentTerms({
+      body: betelBody,
+      total: proposalTotal(betelBody.produtos),
+      paymentTerms: typeRule.payment_terms || null
+    });
+    Object.assign(betelBody, paymentApplication.body);
+    if (paymentApplication.applied) metadata.payment_terms = paymentApplication.metadata;
+
     const numero = String(betelBody.codigo || '').trim();
     if (!/^\d+$/.test(numero)) throw requestError('codigo comercial da proposta deve ser numerico', { field: 'codigo' });
 
