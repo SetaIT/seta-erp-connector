@@ -258,6 +258,25 @@ async function createProposalWrite(payload, correlationId) {
   });
 }
 
+async function createClientWrite(payload, correlationId) {
+  if (GESTAOCLICK_MCP_WRITES_ENABLED) {
+    const result = await supervisorMcpWrite({
+      recurso: 'clientes',
+      acao: 'cadastrar',
+      dados: payload,
+      correlationId,
+      operation: 'create_client'
+    });
+    return result.data;
+  }
+  return betelRequest('/clientes', {
+    method: 'POST',
+    body: payload,
+    correlationId,
+    operation: 'create_client'
+  });
+}
+
 async function hubspotRequest(path, { method = 'GET', body, correlationId, operation, observe = false } = {}) {
   if (!HUBSPOT_ACCESS_TOKEN) {
     const err = new Error('HUBSPOT_ACCESS_TOKEN nao configurado');
@@ -1144,7 +1163,7 @@ app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: '
 app.use('/erp', auth);
 
 app.get('/erp/clientes', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'clientes', path: '/clientes', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
-app.post('/erp/clientes', async (req, res) => { try { res.json(await betelRequest('/clientes', { method: 'POST', body: req.body })); } catch (err) { handleError(err, res); } });
+app.post('/erp/clientes', async (req, res) => { try { res.json(await createClientWrite(req.body || {}, req.correlationId)); } catch (err) { handleError(err, res); } });
 app.get('/erp/produtos', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'produtos', path: '/produtos', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.get('/erp/usuarios', async (req, res) => { try { res.json(await betelRequest('/usuarios', { query: req.query })); } catch (err) { handleError(err, res); } });
 app.get('/erp/situacoes-orcamentos', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'situacoes_orcamentos', path: '/situacoes_orcamentos', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
