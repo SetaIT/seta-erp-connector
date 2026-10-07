@@ -12,6 +12,7 @@ const CONNECTOR_API_KEY = process.env.CONNECTOR_API_KEY;
 const ERP_SUPERVISOR_BASE_URL = String(process.env.ERP_SUPERVISOR_BASE_URL || '').replace(/\/$/, '');
 const ERP_SUPERVISOR_TOKEN = String(process.env.ERP_SUPERVISOR_TOKEN || '').trim();
 const GESTAOCLICK_MCP_WRITES_ENABLED = String(process.env.GESTAOCLICK_MCP_WRITES_ENABLED || 'false').toLowerCase() === 'true';
+const GESTAOCLICK_MCP_READS_ENABLED = String(process.env.GESTAOCLICK_MCP_READS_ENABLED || 'false').toLowerCase() === 'true';
 
 const EDITABLE_FIELDS = [
   'data',
@@ -101,6 +102,85 @@ async function betel(path, { method = 'GET', body } = {}) {
   return { ok: response.ok, status: response.status, data };
 }
 
+async function mcpRead({ recurso, acao = 'listar', id, dados = {} }) {
+  if (!ERP_SUPERVISOR_BASE_URL || !ERP_SUPERVISOR_TOKEN) throw new Error('ERP Supervisor MCP read proxy is not configured');
+  const response = await fetch(`${ERP_SUPERVISOR_BASE_URL}/mcp/gestaoclick/read`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${ERP_SUPERVISOR_TOKEN}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      recurso,
+      acao,
+      ...(id !== undefined ? { id } : {}),
+      dados
+    })
+  });
+  const envelope = await response.json().catch(() => ({}));
+  if (!response.ok || envelope?.status !== 'ok') {
+    const error = new Error(`MCP read proxy failed with HTTP ${response.status}`);
+    error.details = envelope;
+    throw error;
+  }
+  const content = Array.isArray(envelope?.result?.content) ? envelope.result.content : [];
+  const text = content.find(item => item?.type === 'text')?.text;
+  if (!text) throw new Error('MCP read proxy returned no text content');
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { throw new Error('MCP read proxy returned invalid JSON'); }
+  const upstreamStatus = Number(parsed?.http_status || 200);
+  return {
+    ok: upstreamStatus >= 200 && upstreamStatus < 300,
+    status: upstreamStatus,
+    data: parsed?.resposta ?? parsed,
+    source: 'gestaoclick_mcp'
+  };
+}
+
+async function proposalListByNumber(numero) {
+  if (GESTAOCLICK_MCP_READS_ENABLED) {
+    try {
+      return await mcpRead({
+        recurso: 'orcamentos',
+        acao: 'listar',
+        dados: { codigo: numero, limite: 1 }
+      });
+    } catch (error) {
+      console.warn(JSON.stringify({
+        event: 'gestaoclick_mcp_number_write_read_fallback',
+        stage: 'list',
+        numero,
+        message: error?.message || String(error)
+      }));
+    }
+  }
+  const response = await betel(`/orcamentos?codigo=${encodeURIComponent(numero)}`);
+  return { ...response, source: 'betel' };
+}
+
+async function proposalDetail(id) {
+  if (GESTAOCLICK_MCP_READS_ENABLED) {
+    try {
+      return await mcpRead({
+        recurso: 'orcamentos',
+        acao: 'visualizar',
+        id,
+        dados: {}
+      });
+    } catch (error) {
+      console.warn(JSON.stringify({
+        event: 'gestaoclick_mcp_number_write_read_fallback',
+        stage: 'detail',
+        id: String(id),
+        message: error?.message || String(error)
+      }));
+    }
+  }
+  const response = await betel(`/orcamentos/${encodeURIComponent(id)}`);
+  return { ...response, source: 'betel' };
+}
+
 async function mcpWrite({ recurso, acao, id, dados, correlationId }) {
   if (!ERP_SUPERVISOR_BASE_URL || !ERP_SUPERVISOR_TOKEN) {
     return { ok: false, status: 503, data: { message: 'ERP Supervisor MCP write proxy is not configured' }, source: 'gestaoclick_mcp' };
@@ -154,7 +234,7 @@ function validateNumber(numero) {
 async function resolveByNumber(numero) {
   let listResponse;
   try {
-    listResponse = await betel(`/orcamentos?codigo=${encodeURIComponent(numero)}`);
+    listResponse = await proposalListByNumber(numero);
   } catch (err) {
     return { ok: false, stage: 'resolve_number_transport', message: err.message };
   }
@@ -170,7 +250,7 @@ async function resolveByNumber(numero) {
 
   let detailResponse;
   try {
-    detailResponse = await betel(`/orcamentos/${encodeURIComponent(id)}`);
+    detailResponse = await proposalDetail(id);
   } catch (err) {
     return { ok: false, stage: 'load_resolved_proposal_transport', id, message: err.message };
   }
@@ -183,7 +263,7 @@ async function resolveByNumber(numero) {
     return { ok: false, stage: 'identity_mismatch', id, codigo_retornado: proposal?.codigo ?? null, message: 'O ID resolvido nao corresponde ao numero comercial solicitado.' };
   }
 
-  return { ok: true, id, proposal };
+  return { ok: true, id, proposal, listSource: listResponse.source || 'betel', detailSource: detailResponse.source || 'betel' };
 }
 
 function parseDateToIso(value, fieldName) {
@@ -381,7 +461,13 @@ async function editByNumberHandler(req, res) {
     stability_fields_checked: stability.checked, unexpected_changes: stability.unexpected,
     before: valuesForFields(resolved.proposal, Object.keys(built.changes)), requested: built.changes, after: afterRequested,
     connector_write_mode: GESTAOCLICK_MCP_WRITES_ENABLED ? 'mcp_edit_with_post_write_verification' : 'direct_betel_number_resolution',
-    write_source: updateResponse.source || (GESTAOCLICK_MCP_WRITES_ENABLED ? 'gestaoclick_mcp' : 'betel')
+    write_source: updateResponse.source || (GESTAOCLICK_MCP_WRITES_ENABLED ? 'gestaoclick_mcp' : 'betel'),
+    read_sources: {
+      before_list: resolved.listSource || 'betel',
+      before_detail: resolved.detailSource || 'betel',
+      after_list: verification.listSource || 'betel',
+      after_detail: verification.detailSource || 'betel'
+    }
   });
 }
 
