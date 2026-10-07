@@ -29,6 +29,7 @@ const PUBLIC_PROPOSAL_BASE_URL = process.env.PUBLIC_PROPOSAL_BASE_URL || 'https:
 const ERP_SUPERVISOR_BASE_URL = String(process.env.ERP_SUPERVISOR_BASE_URL || '').replace(/\/$/, '');
 const ERP_SUPERVISOR_TOKEN = String(process.env.ERP_SUPERVISOR_TOKEN || '').trim();
 const GESTAOCLICK_MCP_READS_ENABLED = String(process.env.GESTAOCLICK_MCP_READS_ENABLED || 'false').toLowerCase() === 'true';
+const GESTAOCLICK_MCP_WRITES_ENABLED = String(process.env.GESTAOCLICK_MCP_WRITES_ENABLED || 'false').toLowerCase() === 'true';
 
 function getMissingEnv() {
   const missing = [];
@@ -176,6 +177,80 @@ async function erpReadWithMcpFallback({ recurso, path, query, correlationId }) {
     }
   }
   return betelRequest(path, { query, correlationId });
+}
+
+async function supervisorMcpWrite({ recurso, acao, id, dados, correlationId, operation }) {
+  if (!ERP_SUPERVISOR_BASE_URL || !ERP_SUPERVISOR_TOKEN) {
+    const err = new Error('ERP Supervisor MCP write proxy is not configured');
+    err.status = 503;
+    err.source = 'gestaoclick_mcp';
+    err.endpoint = '/mcp/gestaoclick/write';
+    err.operation = operation || `${acao}_${recurso}`;
+    err.correlation_id = correlationId;
+    err.payload = sanitizePayload(dados);
+    throw err;
+  }
+  const response = await fetch(`${ERP_SUPERVISOR_BASE_URL}/mcp/gestaoclick/write`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${ERP_SUPERVISOR_TOKEN}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(correlationId ? { 'x-correlation-id': correlationId } : {})
+    },
+    body: JSON.stringify({
+      recurso,
+      acao,
+      ...(id !== undefined ? { id } : {}),
+      dados,
+      confirmar_escrita: true
+    })
+  });
+  const envelope = await response.json().catch(() => ({}));
+  if (!response.ok || envelope?.status !== 'ok') {
+    const err = new Error(`ERP Supervisor MCP write failed ${response.status}`);
+    err.status = response.status || 502;
+    err.source = 'gestaoclick_mcp';
+    err.endpoint = '/mcp/gestaoclick/write';
+    err.operation = operation || `${acao}_${recurso}`;
+    err.correlation_id = correlationId;
+    err.request_id = envelope?.correlationId || correlationId || null;
+    err.data = envelope;
+    err.payload = sanitizePayload(dados);
+    err.timestamp = new Date().toISOString();
+    throw err;
+  }
+  const content = Array.isArray(envelope?.result?.content) ? envelope.result.content : [];
+  const text = content.find(item => item?.type === 'text')?.text;
+  let parsed = null;
+  if (text) {
+    try { parsed = JSON.parse(text); } catch { parsed = { raw: String(text).slice(0, 2000) }; }
+  }
+  return {
+    http_status: Number(parsed?.http_status || response.status || 200),
+    data: parsed?.resposta ?? parsed ?? envelope,
+    request_id: envelope?.correlationId || correlationId || null,
+    source: 'gestaoclick_mcp'
+  };
+}
+
+async function createProposalWrite(payload, correlationId) {
+  if (GESTAOCLICK_MCP_WRITES_ENABLED) {
+    return supervisorMcpWrite({
+      recurso: 'orcamentos',
+      acao: 'cadastrar',
+      dados: payload,
+      correlationId,
+      operation: 'create_proposal'
+    });
+  }
+  return betelRequest('/orcamentos', {
+    method: 'POST',
+    body: payload,
+    correlationId,
+    operation: 'create_proposal',
+    observe: true,
+  });
 }
 
 async function hubspotRequest(path, { method = 'GET', body, correlationId, operation, observe = false } = {}) {
@@ -1126,13 +1201,7 @@ app.post('/erp/orcamentos', async (req, res) => {
       endpoint: '/orcamentos',
       correlationId,
       payload: betelBody,
-      write: () => betelRequest('/orcamentos', {
-        method: 'POST',
-        body: betelBody,
-        correlationId,
-        operation: 'create_proposal',
-        observe: true,
-      }),
+      write: () => createProposalWrite(betelBody, correlationId),
       verify: () => verifyProposalWrite(numero, betelBody, correlationId),
     });
     const canContinue = [EFFECTIVE_STATUS.SUCCESS, EFFECTIVE_STATUS.SUCCESS_RECOVERED]
@@ -1144,6 +1213,7 @@ app.post('/erp/orcamentos', async (req, res) => {
       status: canContinue ? 'success' : 'error',
       ...reconciliation,
       proposal: reconciliation.downstream_response,
+      write_source: GESTAOCLICK_MCP_WRITES_ENABLED ? 'gestaoclick_mcp' : 'betel',
       commercial: metadata,
       introducao_enviada: introduction,
       introducao_substituida: true,
