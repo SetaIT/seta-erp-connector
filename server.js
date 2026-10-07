@@ -184,6 +184,27 @@ async function erpReadWithMcpFallback({ recurso, path, query, correlationId }) {
   return betelRequest(path, { query, correlationId });
 }
 
+async function erpReadByIdWithMcpFallback({ recurso, id, path, correlationId }) {
+  if (GESTAOCLICK_MCP_READS_ENABLED) {
+    try {
+      return await supervisorMcpReadCall({
+        recurso,
+        acao: 'visualizar',
+        id,
+        dados: {}
+      });
+    } catch (err) {
+      structuredLog('gestaoclick_mcp_read_fallback', {
+        correlation_id: correlationId || null,
+        recurso,
+        id: String(id),
+        message: err?.message || String(err)
+      });
+    }
+  }
+  return betelRequest(path, { correlationId });
+}
+
 async function supervisorMcpWrite({ recurso, acao, id, dados, correlationId, operation }) {
   if (!ERP_SUPERVISOR_BASE_URL || !ERP_SUPERVISOR_TOKEN) {
     const err = new Error('ERP Supervisor MCP write proxy is not configured');
@@ -1170,7 +1191,13 @@ app.get('/erp/situacoes-orcamentos', async (req, res) => { try { res.json(await 
 app.get('/erp/orcamentos', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'orcamentos', path: '/orcamentos', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.get('/erp/orcamentos/:id', async (req, res) => {
   try {
-    const result = await betelRequest(`/orcamentos/${encodeURIComponent(req.params.id)}`);
+    const id = String(req.params.id);
+    const result = await erpReadByIdWithMcpFallback({
+      recurso: 'orcamentos',
+      id,
+      path: `/orcamentos/${encodeURIComponent(id)}`,
+      correlationId: req.correlationId
+    });
     const publicLink = await resolvePublicProposalLink(result);
     res.json({ ...result, ...publicLink });
   } catch (err) { handleError(err, res); }
@@ -1555,12 +1582,12 @@ app.post('/erp/hubspot/negocios/:id/marcar-proposta-enviada', async (req, res) =
   } catch (err) { handleError(err, res); }
 });
 
-app.get('/erp/recebimentos', async (req, res) => { try { res.json(await betelRequest('/recebimentos', { query: req.query })); } catch (err) { handleError(err, res); } });
-app.get('/erp/recebimentos/:id', async (req, res) => { try { res.json(await betelRequest(`/recebimentos/${encodeURIComponent(req.params.id)}`)); } catch (err) { handleError(err, res); } });
+app.get('/erp/recebimentos', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'recebimentos', path: '/recebimentos', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
+app.get('/erp/recebimentos/:id', async (req, res) => { try { const id = String(req.params.id); res.json(await erpReadByIdWithMcpFallback({ recurso: 'recebimentos', id, path: `/recebimentos/${encodeURIComponent(id)}`, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.post('/erp/recebimentos', async (req, res) => { try { res.json(await betelRequest('/recebimentos', { method: 'POST', body: req.body })); } catch (err) { handleError(err, res); } });
-app.get('/erp/planos-contas', async (req, res) => { try { res.json(await betelRequest('/planos_contas', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.get('/erp/planos-contas', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'planos_contas', path: '/planos_contas', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.get('/erp/formas-pagamentos', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'formas_pagamentos', path: '/formas_pagamentos', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
-app.get('/erp/contas-bancarias', async (req, res) => { try { res.json(await betelRequest('/contas_bancarias', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.get('/erp/contas-bancarias', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'contas_bancarias', path: '/contas_bancarias', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 
 app.get('/erp/regras-faturamento', (req, res) => {
   try {
