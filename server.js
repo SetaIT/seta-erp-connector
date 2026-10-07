@@ -298,6 +298,25 @@ async function updateProposalWrite(id, payload, correlationId) {
   });
 }
 
+async function createReceiptWrite(payload, correlationId) {
+  if (GESTAOCLICK_MCP_WRITES_ENABLED) {
+    const result = await supervisorMcpWrite({
+      recurso: 'recebimentos',
+      acao: 'cadastrar',
+      dados: payload,
+      correlationId,
+      operation: 'create_receipt'
+    });
+    return result.data;
+  }
+  return betelRequest('/recebimentos', {
+    method: 'POST',
+    body: payload,
+    correlationId,
+    operation: 'create_receipt'
+  });
+}
+
 async function createClientWrite(payload, correlationId) {
   if (GESTAOCLICK_MCP_WRITES_ENABLED) {
     const result = await supervisorMcpWrite({
@@ -1619,7 +1638,7 @@ app.post('/erp/hubspot/negocios/:id/marcar-proposta-enviada', async (req, res) =
 
 app.get('/erp/recebimentos', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'recebimentos', path: '/recebimentos', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.get('/erp/recebimentos/:id', async (req, res) => { try { const id = String(req.params.id); res.json(await erpReadByIdWithMcpFallback({ recurso: 'recebimentos', id, path: `/recebimentos/${encodeURIComponent(id)}`, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
-app.post('/erp/recebimentos', async (req, res) => { try { res.json(await betelRequest('/recebimentos', { method: 'POST', body: req.body })); } catch (err) { handleError(err, res); } });
+app.post('/erp/recebimentos', async (req, res) => { try { res.json(await createReceiptWrite(req.body || {}, req.correlationId)); } catch (err) { handleError(err, res); } });
 app.get('/erp/planos-contas', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'planos_contas', path: '/planos_contas', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.get('/erp/formas-pagamentos', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'formas_pagamentos', path: '/formas_pagamentos', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.get('/erp/contas-bancarias', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'contas_bancarias', path: '/contas_bancarias', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
