@@ -255,7 +255,50 @@ async function runGestaoClickReadOnlySmoke() {
     contentTypes: [...new Set(content.map(item => item?.type).filter(Boolean))]
   };
   console.log("gestaoclick-mcp-smoke", JSON.stringify(result));
-  return result;
+
+  const coreResources = [
+    "clientes",
+    "produtos",
+    "situacoes_orcamentos",
+    "formas_pagamentos",
+    "orcamentos"
+  ];
+  const matrix = [];
+  for (const recurso of coreResources) {
+    try {
+      const probe = await gestaoclickMcpRequest({
+        jsonrpc: "2.0",
+        id: crypto.randomUUID(),
+        method: "tools/call",
+        params: {
+          name: "chamar_api",
+          arguments: {
+            recurso,
+            acao: "listar",
+            dados: { limite: 1 },
+            confirmar_escrita: false
+          }
+        }
+      }, session.sessionId);
+      const probeResult = probe.body?.result || null;
+      const probeContent = Array.isArray(probeResult?.content) ? probeResult.content : [];
+      const preview = probeContent
+        .filter(item => item?.type === "text")
+        .map(item => String(item?.text || ""))
+        .join("\n")
+        .slice(0, 600);
+      matrix.push({
+        recurso,
+        ok: !probeResult?.isError,
+        contentItems: probeContent.length,
+        preview
+      });
+    } catch (error) {
+      matrix.push({ recurso, ok: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  console.log("gestaoclick-mcp-core-read-matrix", JSON.stringify(matrix));
+  return { ...result, coreReadMatrix: matrix };
 }
 
 async function ensureSchema() {
