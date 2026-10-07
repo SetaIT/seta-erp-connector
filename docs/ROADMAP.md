@@ -145,7 +145,8 @@ Controles obrigatorios:
 - [x] caminho de criacao de proposta via MCP oficial implementado sob feature flag, ainda desabilitado em producao;
 - [x] resolucao pre/post-write por numero nas rotas de edicao/exclusao migrada para leituras MCP com fallback REST;
 - [x] `describe_recurso` validado em producao para clientes, produtos, orcamentos e recebimentos;
-- [ ] contratos detalhados das acoes de escrita oficiais (`cadastrar`/`editar`) inventariados antes de qualquer ativacao de escrita;
+- [x] contratos detalhados das acoes de escrita oficiais (`cadastrar`/`editar`) inventariados para clientes, produtos, orcamentos e recebimentos; campos obrigatorios agora sao validados antes de qualquer chamada de escrita;
+- [x] endpoint de `write-preview` sem efeito colateral implementado para validar politica, contrato e prontidao do payload antes de habilitar escrita real;
 
 Ferramentas alvo:
 - consultar_proposta

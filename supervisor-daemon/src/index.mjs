@@ -94,6 +94,47 @@ export function gestaoClickWritePolicy({
   return { allowed: true, reason: "allowed", recurso: normalizedResource, acao: normalizedAction };
 }
 
+export function gestaoClickWriteContract({ recurso, acao, dados = {}, id } = {}) {
+  const normalizedResource = String(recurso || "").trim().toLowerCase();
+  const normalizedAction = String(acao || "").trim().toLowerCase();
+  const requiredByAction = {
+    "clientes:cadastrar": ["tipo_pessoa", "nome"],
+    "clientes:editar": ["tipo_pessoa", "nome"],
+    "produtos:cadastrar": ["nome", "codigo_interno", "valor_custo"],
+    "orcamentos:cadastrar": ["tipo", "codigo", "cliente_id", "situacao_id", "data"],
+    "orcamentos:editar": ["tipo", "codigo", "cliente_id", "situacao_id", "data"],
+    "recebimentos:cadastrar": ["descricao", "data_vencimento", "plano_contas_id", "forma_pagamento_id", "conta_bancaria_id", "valor", "data_competencia"]
+  };
+  const key = `${normalizedResource}:${normalizedAction}`;
+  const required = requiredByAction[key];
+  if (!required) {
+    return {
+      valid: false,
+      reason: "contract_not_defined",
+      recurso: normalizedResource,
+      acao: normalizedAction,
+      required: [],
+      missing: []
+    };
+  }
+  const payload = dados && typeof dados === "object" && !Array.isArray(dados) ? dados : {};
+  const missing = required.filter(field => {
+    const value = payload[field];
+    return value === undefined || value === null || (typeof value === "string" && value.trim() === "");
+  });
+  if (normalizedAction === "editar" && (id === undefined || id === null || String(id).trim() === "")) {
+    missing.unshift("id");
+  }
+  return {
+    valid: missing.length === 0,
+    reason: missing.length ? "missing_required_fields" : "valid",
+    recurso: normalizedResource,
+    acao: normalizedAction,
+    required,
+    missing
+  };
+}
+
 function requireDispatcherAuth(req, res, next) {
   if (!DISPATCHER_TOKEN) {
     return res.status(503).json({ message: "dispatcher authentication is not configured" });
@@ -635,6 +676,28 @@ app.post("/mcp/gestaoclick/read", requireMcpProxyAuth, async (req, res) => {
   }
 });
 
+app.post("/mcp/gestaoclick/write-preview", requireDispatcherAuth, async (req, res) => {
+  const recurso = String(req.body?.recurso || "").trim();
+  const acao = String(req.body?.acao || "").trim();
+  const dados = req.body?.dados && typeof req.body.dados === "object" ? req.body.dados : {};
+  const id = req.body?.id ?? undefined;
+  const policy = gestaoClickWritePolicy({
+    recurso,
+    acao,
+    confirmarEscrita: true,
+    readOnly: false
+  });
+  const contract = gestaoClickWriteContract({ recurso, acao, dados, id });
+  return res.json({
+    status: policy.allowed && contract.valid ? "ready" : "blocked",
+    recurso: String(recurso || "").trim().toLowerCase(),
+    acao: String(acao || "").trim().toLowerCase(),
+    policy,
+    contract,
+    liveWriteEnabled: !GESTAOCLICK_MCP_READ_ONLY
+  });
+});
+
 app.post("/mcp/gestaoclick/write", requireDispatcherAuth, async (req, res) => {
   const correlationId = String(req.headers["x-correlation-id"] || crypto.randomUUID());
   const recurso = String(req.body?.recurso || "").trim();
@@ -647,6 +710,7 @@ app.post("/mcp/gestaoclick/write", requireDispatcherAuth, async (req, res) => {
     confirmarEscrita: req.body?.confirmar_escrita,
     readOnly: GESTAOCLICK_MCP_READ_ONLY
   });
+  const contract = gestaoClickWriteContract({ recurso, acao, dados, id });
   if (!policy.allowed) {
     await query(`
       INSERT INTO gestaoclick_mcp_audit
@@ -661,6 +725,27 @@ app.post("/mcp/gestaoclick/write", requireDispatcherAuth, async (req, res) => {
       JSON.stringify({ reason: policy.reason })
     ]);
     return res.status(409).json({ status: "blocked", correlationId, reason: policy.reason });
+  }
+  if (!contract.valid) {
+    await query(`
+      INSERT INTO gestaoclick_mcp_audit
+        (id, correlation_id, recurso, acao, status, request_payload, response_summary)
+      VALUES ($1,$2,$3,$4,'blocked',$5::jsonb,$6::jsonb)
+    `, [
+      crypto.randomUUID(),
+      correlationId,
+      policy.recurso,
+      policy.acao,
+      JSON.stringify({ id: id ?? null, dados, confirmar_escrita: true }),
+      JSON.stringify({ reason: contract.reason, missing: contract.missing, required: contract.required })
+    ]);
+    return res.status(422).json({
+      status: "blocked",
+      correlationId,
+      reason: contract.reason,
+      missing: contract.missing,
+      required: contract.required
+    });
   }
 
   try {

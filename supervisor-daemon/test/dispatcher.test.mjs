@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isDispatcherAuthorized, failureDisposition, isUuid, gestaoClickWritePolicy } from "../src/index.mjs";
+import { isDispatcherAuthorized, failureDisposition, isUuid, gestaoClickWritePolicy, gestaoClickWriteContract } from "../src/index.mjs";
 
 test("dispatcher auth rejects when token is missing", () => {
   assert.equal(isDispatcherAuthorized({ authorization: "Bearer abc" }, ""), false);
@@ -73,4 +73,62 @@ test("GestaoClick write policy allowlists only approved writes", () => {
     gestaoClickWritePolicy({ recurso: "produtos", acao: "deletar", confirmarEscrita: true, readOnly: false }),
     { allowed: false, reason: "resource_or_action_not_whitelisted" }
   );
+});
+
+
+test("GestaoClick write contract validates proposal create required fields", () => {
+  assert.deepEqual(
+    gestaoClickWriteContract({
+      recurso: "orcamentos",
+      acao: "cadastrar",
+      dados: { tipo: "1", codigo: "5000", cliente_id: "7", situacao_id: "3150", data: "2026-10-07" }
+    }),
+    {
+      valid: true,
+      reason: "valid",
+      recurso: "orcamentos",
+      acao: "cadastrar",
+      required: ["tipo", "codigo", "cliente_id", "situacao_id", "data"],
+      missing: []
+    }
+  );
+});
+
+test("GestaoClick write contract blocks incomplete proposal create", () => {
+  const result = gestaoClickWriteContract({
+    recurso: "orcamentos",
+    acao: "cadastrar",
+    dados: { cliente_id: "7", situacao_id: "3150" }
+  });
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, "missing_required_fields");
+  assert.deepEqual(result.missing, ["tipo", "codigo", "data"]);
+});
+
+test("GestaoClick write contract requires id on edit", () => {
+  const result = gestaoClickWriteContract({
+    recurso: "clientes",
+    acao: "editar",
+    dados: { tipo_pessoa: "PJ", nome: "Empresa Teste" }
+  });
+  assert.equal(result.valid, false);
+  assert.equal(result.missing[0], "id");
+});
+
+test("GestaoClick write contract validates receipt create required fields", () => {
+  const result = gestaoClickWriteContract({
+    recurso: "recebimentos",
+    acao: "cadastrar",
+    dados: {
+      descricao: "Parcela proposta 5000",
+      data_vencimento: "2026-11-06",
+      plano_contas_id: "1",
+      forma_pagamento_id: "2",
+      conta_bancaria_id: "3",
+      valor: "100.00",
+      data_competencia: "2026-10-07"
+    }
+  });
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.missing, []);
 });
