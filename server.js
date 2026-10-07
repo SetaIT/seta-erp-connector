@@ -119,7 +119,7 @@ async function betelRequest(path, { method = 'GET', query, body, correlationId, 
   throw lastError;
 }
 
-async function supervisorMcpRead(recurso, query = {}) {
+async function supervisorMcpReadCall({ recurso, acao = 'listar', id, dados = {} }) {
   if (!ERP_SUPERVISOR_BASE_URL || !ERP_SUPERVISOR_TOKEN) {
     throw new Error('ERP Supervisor MCP read proxy is not configured');
   }
@@ -132,8 +132,9 @@ async function supervisorMcpRead(recurso, query = {}) {
     },
     body: JSON.stringify({
       recurso,
-      acao: 'listar',
-      dados: query || {}
+      acao,
+      ...(id !== undefined ? { id } : {}),
+      dados
     })
   });
   const envelope = await response.json().catch(() => ({}));
@@ -162,6 +163,10 @@ async function supervisorMcpRead(recurso, query = {}) {
     throw err;
   }
   return parsed?.resposta ?? parsed;
+}
+
+async function supervisorMcpRead(recurso, query = {}) {
+  return supervisorMcpReadCall({ recurso, acao: 'listar', dados: query || {} });
 }
 
 async function erpReadWithMcpFallback({ recurso, path, query, correlationId }) {
@@ -479,28 +484,76 @@ function proposalEquivalence(actual, expected) {
 
 async function verifyProposalWrite(numero, expected, correlationId) {
   try {
-    const search = await betelRequest('/orcamentos', {
-      query: { codigo: numero },
-      correlationId,
-      operation: 'verify_proposal_by_commercial_number',
-    });
+    let search;
+    let searchSource = 'betel';
+    if (GESTAOCLICK_MCP_READS_ENABLED) {
+      try {
+        search = await supervisorMcpReadCall({
+          recurso: 'orcamentos',
+          acao: 'listar',
+          dados: { codigo: numero, limite: 1 }
+        });
+        searchSource = 'gestaoclick_mcp';
+      } catch (error) {
+        structuredLog('gestaoclick_mcp_verify_fallback', {
+          correlation_id: correlationId || null,
+          stage: 'list',
+          numero,
+          message: error?.message || String(error)
+        });
+      }
+    }
+    if (!search) {
+      search = await betelRequest('/orcamentos', {
+        query: { codigo: numero },
+        correlationId,
+        operation: 'verify_proposal_by_commercial_number',
+      });
+    }
+
     const summary = findProposalByCommercialNumber(search, numero);
-    if (!summary) return { outcome: 'absent', details: { numero, search: sanitizePayload(search) } };
+    if (!summary) return { outcome: 'absent', details: { numero, search_source: searchSource, search: sanitizePayload(search) } };
 
     const internalId = summary.id ?? summary.orcamento_id ?? summary.id_orcamento;
     let resource = summary;
+    let detailSource = searchSource;
     if (internalId) {
       try {
-        const detail = await betelRequest(`/orcamentos/${encodeURIComponent(internalId)}`, {
-          correlationId,
-          operation: 'verify_proposal_detail',
-        });
+        let detail;
+        if (GESTAOCLICK_MCP_READS_ENABLED) {
+          try {
+            detail = await supervisorMcpReadCall({
+              recurso: 'orcamentos',
+              acao: 'visualizar',
+              id: internalId,
+              dados: {}
+            });
+            detailSource = 'gestaoclick_mcp';
+          } catch (error) {
+            structuredLog('gestaoclick_mcp_verify_fallback', {
+              correlation_id: correlationId || null,
+              stage: 'detail',
+              numero,
+              id: String(internalId),
+              message: error?.message || String(error)
+            });
+          }
+        }
+        if (!detail) {
+          detail = await betelRequest(`/orcamentos/${encodeURIComponent(internalId)}`, {
+            correlationId,
+            operation: 'verify_proposal_detail',
+          });
+          detailSource = 'betel';
+        }
         resource = extractProposalData(detail) || summary;
       } catch (error) {
         return {
           outcome: 'inconclusive',
           details: {
             numero,
+            search_source: searchSource,
+            detail_source: detailSource,
             found_summary: sanitizePayload(summary),
             detail_error: error instanceof Error ? error.message : 'proposal_detail_failed',
           },
@@ -513,7 +566,7 @@ async function verifyProposalWrite(numero, expected, correlationId) {
       outcome: 'found',
       equivalent: comparison.equivalent,
       resource,
-      details: { numero, mismatches: comparison.mismatches },
+      details: { numero, search_source: searchSource, detail_source: detailSource, mismatches: comparison.mismatches },
     };
   } catch (error) {
     return {
