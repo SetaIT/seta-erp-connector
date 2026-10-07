@@ -9,6 +9,9 @@ const BETEL_BASE_URL = process.env.BETEL_BASE_URL || 'https://api.beteltecnologi
 const BETEL_ACCESS_TOKEN = process.env.BETEL_ACCESS_TOKEN;
 const BETEL_SECRET_ACCESS_TOKEN = process.env.BETEL_SECRET_ACCESS_TOKEN;
 const CONNECTOR_API_KEY = process.env.CONNECTOR_API_KEY;
+const ERP_SUPERVISOR_BASE_URL = String(process.env.ERP_SUPERVISOR_BASE_URL || '').replace(/\/$/, '');
+const ERP_SUPERVISOR_TOKEN = String(process.env.ERP_SUPERVISOR_TOKEN || '').trim();
+const GESTAOCLICK_MCP_READS_ENABLED = String(process.env.GESTAOCLICK_MCP_READS_ENABLED || 'false').toLowerCase() === 'true';
 
 const EDITABLE_FIELDS = [
   'data',
@@ -193,6 +196,61 @@ function applyCommercialPersistence(current, body, changes) {
   return { deliveryDays, freight, introduction, previsaoEntrega: changes.previsao_entrega };
 }
 
+async function mcpReadProposal(id, correlationId) {
+  if (!ERP_SUPERVISOR_BASE_URL || !ERP_SUPERVISOR_TOKEN) {
+    throw new Error('ERP Supervisor MCP read proxy is not configured');
+  }
+  const response = await fetch(`${ERP_SUPERVISOR_BASE_URL}/mcp/gestaoclick/read`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${ERP_SUPERVISOR_TOKEN}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(correlationId ? { 'x-correlation-id': correlationId } : {})
+    },
+    body: JSON.stringify({
+      recurso: 'orcamentos',
+      acao: 'visualizar',
+      id,
+      dados: {}
+    })
+  });
+  const envelope = await response.json().catch(() => ({}));
+  if (!response.ok || envelope?.status !== 'ok') {
+    const error = new Error(`MCP read proxy failed with HTTP ${response.status}`);
+    error.details = envelope;
+    throw error;
+  }
+  const content = Array.isArray(envelope?.result?.content) ? envelope.result.content : [];
+  const text = content.find(item => item?.type === 'text')?.text;
+  if (!text) throw new Error('MCP read proxy returned no text content');
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { throw new Error('MCP read proxy returned invalid JSON'); }
+  const status = Number(parsed?.http_status || 200);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    data: parsed?.resposta ?? parsed,
+    source: 'gestaoclick_mcp'
+  };
+}
+
+async function readProposal(id, correlationId) {
+  if (GESTAOCLICK_MCP_READS_ENABLED) {
+    try {
+      return await mcpReadProposal(id, correlationId);
+    } catch (error) {
+      console.warn(JSON.stringify({
+        event: 'gestaoclick_mcp_edit_diagnostics_read_fallback',
+        id: String(id),
+        message: error?.message || String(error)
+      }));
+    }
+  }
+  const response = await betel(`/orcamentos/${encodeURIComponent(id)}`);
+  return { ...response, source: 'betel' };
+}
+
 async function betel(path, { method = 'GET', body } = {}) {
   const response = await fetch(`${BETEL_BASE_URL}${path}`, {
     method,
@@ -370,7 +428,7 @@ async function editDiagnosticsHandler(req, res) {
   let commercialFields = null;
 
   try {
-    const currentResponse = await betel(`/orcamentos/${encodeURIComponent(id)}`);
+    const currentResponse = await readProposal(id, req.correlationId);
     if (!currentResponse.ok) {
       return res.status(200).json({ status: 'error', stage: 'load_current_proposal', write_attempted: false, write_succeeded: false, betel_http_status: currentResponse.status, betel_details: compactDetails(currentResponse.data) });
     }
@@ -417,7 +475,7 @@ async function editDiagnosticsHandler(req, res) {
 
   let verificationResponse;
   try {
-    verificationResponse = await betel(`/orcamentos/${encodeURIComponent(id)}`);
+    verificationResponse = await readProposal(id, req.correlationId);
   } catch (err) {
     return res.status(200).json({ status: 'success_unverified', stage: 'verification_transport', write_attempted: true, write_succeeded: true, verification_succeeded: false, requested_changes: changes, message: err.message });
   }
@@ -474,7 +532,7 @@ async function deleteProposalHandler(req, res) {
 
   let currentResponse;
   try {
-    currentResponse = await betel(`/orcamentos/${encodeURIComponent(id)}`);
+    currentResponse = await readProposal(id, req.correlationId);
   } catch (err) {
     return res.status(200).json({ status: 'error', stage: 'load_current_proposal_transport', delete_attempted: false, delete_succeeded: false, message: err.message });
   }
@@ -524,7 +582,7 @@ async function deleteProposalHandler(req, res) {
 
   let verificationResponse;
   try {
-    verificationResponse = await betel(`/orcamentos/${encodeURIComponent(id)}`);
+    verificationResponse = await readProposal(id, req.correlationId);
   } catch (err) {
     return res.status(200).json({ status: 'success_unverified', stage: 'verification_transport', delete_attempted: true, delete_succeeded: true, verification_succeeded: false, proposal_before_delete: snapshot, betel_delete_result: compactDetails(deleteResponse.data), message: err.message });
   }
