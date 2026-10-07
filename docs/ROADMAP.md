@@ -30,7 +30,7 @@ A ordem de execucao passa a ser:
 - **P0 - Estabilizar criacao e edicao de propostas em producao**, incluindo pagamentos, idempotencia e regressao;
 - **P1 - Validar o MCP oficial do GestaoClick em producao no modo leitura**, com `initialize`, `tools/list` e chamada real somente leitura;
 - **P2 - Implementar rate limit centralizado para acessos ao GestaoClick [CONCLUIDO]**, respeitando o limite oficial de 3 requisicoes por segundo e 30.000 por dia por empresa;
-- **P3 - Liberar operacoes MCP de escrita apenas com whitelist, preview, confirmacao e auditoria**;
+- **P3 - Consolidar MCP oficial do GestaoClick e iniciar MCP oficial do HubSpot**, mantendo escritas com whitelist, preview, confirmacao e auditoria;
 - **P4 - Concluir CRUD de propostas exclusivamente por numero comercial para o usuario**;
 - **P5 - Consolidar observabilidade, correlation ID, classificacao de incidentes e rollback validado**;
 - **P6 - Avaliar reducao gradual do `seta-erp-connector` somente onde o MCP oficial cobrir a mesma operacao com seguranca equivalente**;
@@ -87,6 +87,7 @@ Tarefa principal atual: Issue #5 - CRUD de propostas somente por numero comercia
 - [x] rota publica de PUT/edicao por numero com resolucao interna do ID;
 - [x] OpenAPI sem exigir ID interno no fluxo recomendado;
 - [x] regras de pagamento Locacao/SpareParts implementadas e testadas (a vista, 1 parcela, vencimento em 30 dias, parcela reconciliada com o total da proposta);
+- [ ] introducao comercial sugerida automaticamente a partir do tipo da proposta, solucao, prazo, frete, SLA, itens e contexto do cliente; deve permanecer editavel antes da gravacao e nunca preencher o campo formal de frete do ERP;
 - [ ] fluxo Deal -> email -> Proposta Enviada -> follow-up -> Ganho/Perdido;
 - [ ] testes de regressao das regras comerciais (regressao de pagamento Locacao/SpareParts adicionada; ampliar para introducao, frete, itens e ciclo completo).
 
@@ -123,7 +124,12 @@ A integracao MCP foi antecipada porque o GestaoClick passou a disponibilizar um 
 
 Arquitetura atual:
 
-Supervisor Comercial -> MCP oficial GestaoClick -> ERP producao
+Supervisor Comercial
+  -> MCP oficial GestaoClick -> ERP producao
+  -> MCP oficial HubSpot -> CRM
+  -> Outlook / Microsoft Graph -> email
+
+O objetivo e usar os MCPs oficiais como caminho preferencial para operacoes nativas de cada plataforma, mantendo no codigo Seta apenas regras comerciais, orquestracao, auditoria, seguranca e fallbacks estritamente necessarios.
 
 O App MCP Seta Telecom continua como superficie propria para regras e orquestracao que nao devem depender do provedor. Cloud Run deixa de ser pre-requisito para validar o MCP oficial e passa a ser uma decisao de infraestrutura posterior.
 
@@ -147,6 +153,14 @@ Controles obrigatorios:
 - [x] `describe_recurso` validado em producao para clientes, produtos, orcamentos e recebimentos;
 - [x] contratos detalhados das acoes de escrita oficiais (`cadastrar`/`editar`) inventariados para clientes, produtos, orcamentos e recebimentos; campos obrigatorios agora sao validados antes de qualquer chamada de escrita;
 - [x] endpoint de `write-preview` sem efeito colateral implementado para validar politica, contrato e prontidao do payload antes de habilitar escrita real;
+- [x] MCP oficial do HubSpot conectado e validado em leitura;
+- [x] disponibilidade MCP HubSpot confirmada com leitura e escrita para COMPANY, CONTACT, DEAL, LINE_ITEM, PRODUCT, TASK e NOTE;
+- [x] smoke read-only HubSpot executado com sucesso em COMPANY;
+- [ ] mapear rotas REST HubSpot existentes para equivalentes MCP oficiais;
+- [ ] migrar primeiro pesquisas de empresa, contato, negocio e associacoes para MCP HubSpot;
+- [ ] migrar criacao/edicao de COMPANY, CONTACT e DEAL para MCP HubSpot respeitando confirmacao explicita exigida pelo conector oficial;
+- [ ] migrar associacoes empresa-contato-deal e registro de atividades/notas;
+- [ ] manter REST customizado HubSpot apenas onde o MCP oficial nao oferecer cobertura equivalente ou onde houver regra Seta adicional;
 
 Ferramentas alvo:
 - consultar_proposta
