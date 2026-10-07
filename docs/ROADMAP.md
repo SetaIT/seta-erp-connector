@@ -29,14 +29,14 @@ A ordem de execucao passa a ser:
 
 - **P0 - Estabilizar criacao e edicao de propostas em producao**, incluindo pagamentos, idempotencia e regressao;
 - **P1 - Validar o MCP oficial do GestaoClick em producao no modo leitura**, com `initialize`, `tools/list` e chamada real somente leitura;
-- **P2 - Implementar rate limit centralizado para acessos ao GestaoClick**, respeitando o limite oficial de 3 requisicoes por segundo e 30.000 por dia por empresa;
+- **P2 - Implementar rate limit centralizado para acessos ao GestaoClick [CONCLUIDO]**, respeitando o limite oficial de 3 requisicoes por segundo e 30.000 por dia por empresa;
 - **P3 - Liberar operacoes MCP de escrita apenas com whitelist, preview, confirmacao e auditoria**;
 - **P4 - Concluir CRUD de propostas exclusivamente por numero comercial para o usuario**;
 - **P5 - Consolidar observabilidade, correlation ID, classificacao de incidentes e rollback validado**;
 - **P6 - Avaliar reducao gradual do `seta-erp-connector` somente onde o MCP oficial cobrir a mesma operacao com seguranca equivalente**;
 - **P7 - Reavaliar a migracao para Cloud Run apos estabilizacao funcional e operacional**.
 
-O MCP oficial do GestaoClick e uma integracao direta do Supervisor Comercial. O `seta-erp-mcp` deixa de ser requisito intermediario para o acesso ao GestaoClick, e o `seta-erp-connector` permanece enquanto houver regras comerciais, reconciliacao, idempotencia ou compatibilidade nao cobertas com seguranca pelo MCP oficial.
+O MCP oficial do GestaoClick e uma integracao direta do Supervisor Comercial. O `seta-erp-mcp` foi removido de producao apos migracao para o MCP oficial. O servico Railway `seta-erp-connector` tambem foi retirado do caminho ativo; `seta-comercial-api` permanece como camada comercial e de integracoes Seta enquanto as operacoes ERP sao migradas gradualmente para o MCP oficial.
 
 ## Fase 1 - QA automatico e disciplina de entrega [EM IMPLEMENTACAO]
 - [x] comando `npm run qa`;
@@ -132,9 +132,9 @@ Controles obrigatorios:
 - [x] cliente MCP remoto no `erp-supervisor-daemon`;
 - [x] modo `read-only` como padrao;
 - [x] smoke E2E de leitura validado em producao (`initialize -> tools/list -> tools/call`, tool `listar_recursos`);
-- [ ] inventario e classificacao completa das tools expostas pelo MCP oficial (5 tools detectadas; `listar_recursos` validada como leitura);
-- [ ] rate limit centralizado;
-- [ ] whitelist de tools de leitura;
+- [x] inventario inicial das 5 tools expostas pelo MCP oficial (`listar_recursos`, `describe_recurso`, `buscar_conhecimento`, `ler_conhecimento`, `chamar_api`);
+- [x] rate limit centralizado com intervalo minimo e contador diario persistido;
+- [x] proxy read-only protegido para `chamar_api`, com allowlist de acoes de leitura e `confirmar_escrita=false`;
 - [ ] whitelist separada de tools de escrita;
 - [ ] auditoria por correlation ID de toda chamada MCP;
 - [ ] preview e confirmacao para escrita comercial;
