@@ -6,6 +6,7 @@ const { Pool } = pg;
 const PORT = Number(process.env.PORT || 3000);
 const DATABASE_URL = process.env.DATABASE_URL;
 const DISPATCHER_TOKEN = process.env.DISPATCHER_TOKEN || "";
+const GESTAOCLICK_MCP_PROXY_TOKEN = process.env.GESTAOCLICK_MCP_PROXY_TOKEN || "";
 const HEARTBEAT_MS = Number(process.env.SUPERVISOR_HEARTBEAT_MS || 30000);
 const POLL_MS = Number(process.env.SUPERVISOR_POLL_MS || 15000);
 const INSTANCE_ID = process.env.RAILWAY_REPLICA_ID || crypto.randomUUID();
@@ -98,6 +99,13 @@ function requireDispatcherAuth(req, res, next) {
   if (!isDispatcherAuthorized(req.headers)) {
     return res.status(401).json({ message: "unauthorized" });
   }
+  next();
+}
+
+function requireMcpProxyAuth(req, res, next) {
+  const token = GESTAOCLICK_MCP_PROXY_TOKEN || DISPATCHER_TOKEN;
+  if (!token) return res.status(503).json({ message: "MCP proxy authentication is not configured" });
+  if (!isDispatcherAuthorized(req.headers, token)) return res.status(401).json({ message: "unauthorized" });
   next();
 }
 
@@ -498,7 +506,7 @@ app.get("/health", async (_req, res) => {
   }
 });
 
-app.get("/mcp/gestaoclick/tools", requireDispatcherAuth, async (_req, res) => {
+app.get("/mcp/gestaoclick/tools", requireMcpProxyAuth, async (_req, res) => {
   try {
     const result = await listGestaoClickMcpTools();
     res.json({ status: "ok", mode: GESTAOCLICK_MCP_READ_ONLY ? "read-only" : "write-enabled", ...result });
@@ -507,7 +515,7 @@ app.get("/mcp/gestaoclick/tools", requireDispatcherAuth, async (_req, res) => {
   }
 });
 
-app.post("/mcp/gestaoclick/read", requireDispatcherAuth, async (req, res) => {
+app.post("/mcp/gestaoclick/read", requireMcpProxyAuth, async (req, res) => {
   try {
     if (!GESTAOCLICK_MCP_READ_ONLY) {
       return res.status(409).json({ status: "error", message: "GestaoClick MCP is not in read-only mode" });
