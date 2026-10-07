@@ -14,7 +14,12 @@ const GESTAOCLICK_MCP_URL = String(process.env.GESTAOCLICK_MCP_URL || "").trim()
 const GESTAOCLICK_ACCESS_TOKEN = String(process.env.GESTAOCLICK_ACCESS_TOKEN || "").trim();
 const GESTAOCLICK_SECRET_ACCESS_TOKEN = String(process.env.GESTAOCLICK_SECRET_ACCESS_TOKEN || "").trim();
 const GESTAOCLICK_MCP_READ_ONLY = String(process.env.GESTAOCLICK_MCP_READ_ONLY || "true").toLowerCase() !== "false";
+const GESTAOCLICK_MCP_MIN_INTERVAL_MS = Math.max(Number(process.env.GESTAOCLICK_MCP_MIN_INTERVAL_MS || 350), 334);
+const GESTAOCLICK_MCP_DAILY_SOFT_LIMIT = Math.min(Number(process.env.GESTAOCLICK_MCP_DAILY_SOFT_LIMIT || 28000), 30000);
 const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL }) : null;
+
+let gestaoclickMcpRateChain = Promise.resolve();
+let gestaoclickMcpLastRequestAt = 0;
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -96,8 +101,41 @@ function parseMcpPayload(contentType, raw) {
   try { return JSON.parse(raw); } catch { return null; }
 }
 
+async function reserveGestaoClickMcpRequestSlot() {
+  const previous = gestaoclickMcpRateChain;
+  let release;
+  gestaoclickMcpRateChain = new Promise(resolve => { release = resolve; });
+  await previous;
+  try {
+    const usage = await query(`
+      INSERT INTO gestaoclick_mcp_usage(usage_date, request_count, updated_at)
+      VALUES (CURRENT_DATE, 1, now())
+      ON CONFLICT (usage_date) DO UPDATE
+      SET request_count = gestaoclick_mcp_usage.request_count + 1,
+          updated_at = now()
+      RETURNING request_count
+    `);
+    const requestCount = Number(usage.rows[0]?.request_count || 0);
+    if (requestCount > GESTAOCLICK_MCP_DAILY_SOFT_LIMIT) {
+      await query(`
+        UPDATE gestaoclick_mcp_usage
+        SET request_count = GREATEST(request_count - 1, 0), updated_at = now()
+        WHERE usage_date = CURRENT_DATE
+      `);
+      throw new Error(`GestaoClick MCP daily soft limit reached: ${GESTAOCLICK_MCP_DAILY_SOFT_LIMIT}`);
+    }
+    const waitMs = Math.max(0, GESTAOCLICK_MCP_MIN_INTERVAL_MS - (Date.now() - gestaoclickMcpLastRequestAt));
+    if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs));
+    gestaoclickMcpLastRequestAt = Date.now();
+    return requestCount;
+  } finally {
+    release();
+  }
+}
+
 async function gestaoclickMcpRequest(payload, sessionId = "") {
   if (!gestaoclickMcpConfigured()) throw new Error("GestaoClick MCP is not configured");
+  await reserveGestaoClickMcpRequestSlot();
   const response = await fetch(GESTAOCLICK_MCP_URL, {
     method: "POST",
     headers: {
@@ -276,6 +314,12 @@ async function ensureSchema() {
       finished_at timestamptz,
       result jsonb NOT NULL DEFAULT '{}'::jsonb
     );
+
+    CREATE TABLE IF NOT EXISTS gestaoclick_mcp_usage (
+      usage_date date PRIMARY KEY,
+      request_count integer NOT NULL DEFAULT 0,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
   `);
 }
 
@@ -360,6 +404,8 @@ app.get("/health", async (_req, res) => {
       dispatcherAuth:DISPATCHER_TOKEN ? "configured" : "missing",
       gestaoclickMcp: gestaoclickMcpConfigured() ? "configured" : "missing",
       gestaoclickMcpMode: GESTAOCLICK_MCP_READ_ONLY ? "read-only" : "write-enabled",
+      gestaoclickMcpMinIntervalMs: GESTAOCLICK_MCP_MIN_INTERVAL_MS,
+      gestaoclickMcpDailySoftLimit: GESTAOCLICK_MCP_DAILY_SOFT_LIMIT,
       database:db.rows[0]?.ok === 1 ? "ok" : "unknown",
       lastHeartbeatAt,
       lastPollAt,
