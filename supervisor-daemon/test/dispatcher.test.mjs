@@ -66,6 +66,10 @@ test("GestaoClick write policy allowlists only approved writes", () => {
     { allowed: true, reason: "allowed", recurso: "produtos", acao: "cadastrar" }
   );
   assert.deepEqual(
+    gestaoClickWritePolicy({ recurso: "recebimentos", acao: "cadastrar", confirmarEscrita: true, readOnly: false }),
+    { allowed: true, reason: "allowed", recurso: "recebimentos", acao: "cadastrar" }
+  );
+  assert.deepEqual(
     gestaoClickWritePolicy({ recurso: "produtos", acao: "deletar", confirmarEscrita: true, readOnly: false }),
     { allowed: false, reason: "resource_or_action_not_whitelisted" }
   );
