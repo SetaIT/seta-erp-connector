@@ -279,6 +279,25 @@ async function createProposalWrite(payload, correlationId) {
   });
 }
 
+async function updateProposalWrite(id, payload, correlationId) {
+  if (GESTAOCLICK_MCP_WRITES_ENABLED) {
+    return supervisorMcpWrite({
+      recurso: 'orcamentos',
+      acao: 'editar',
+      id,
+      dados: payload,
+      correlationId,
+      operation: 'update_proposal'
+    });
+  }
+  return betelRequest(`/orcamentos/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: payload,
+    correlationId,
+    operation: 'update_proposal'
+  });
+}
+
 async function createClientWrite(payload, correlationId) {
   if (GESTAOCLICK_MCP_WRITES_ENABLED) {
     const result = await supervisorMcpWrite({
@@ -1208,14 +1227,24 @@ app.get('/erp/orcamentos/:id', async (req, res) => {
 });
 app.put('/erp/orcamentos/:id', async (req, res) => {
   try {
-    const id = encodeURIComponent(req.params.id);
-    const currentResult = await betelRequest(`/orcamentos/${id}`);
+    const id = String(req.params.id);
+    const currentResult = await erpReadByIdWithMcpFallback({
+      recurso: 'orcamentos',
+      id,
+      path: `/orcamentos/${encodeURIComponent(id)}`,
+      correlationId: req.correlationId
+    });
     const current = extractProposalData(currentResult);
     if (!current) throw requestError('Nao foi possivel interpretar a proposta atual antes da edicao', { id: req.params.id });
 
     const { payload, changes } = buildProposalEditPayload(current, req.body || {});
-    const updateResult = await betelRequest(`/orcamentos/${id}`, { method: 'PUT', body: payload });
-    const refreshedResult = await betelRequest(`/orcamentos/${id}`);
+    const updateResult = await updateProposalWrite(id, payload, req.correlationId);
+    const refreshedResult = await erpReadByIdWithMcpFallback({
+      recurso: 'orcamentos',
+      id,
+      path: `/orcamentos/${encodeURIComponent(id)}`,
+      correlationId: req.correlationId
+    });
     const refreshed = extractProposalData(refreshedResult);
     const publicLink = await resolvePublicProposalLink(refreshedResult);
 
@@ -1230,6 +1259,7 @@ app.put('/erp/orcamentos/:id', async (req, res) => {
         changes_requested: changes,
         verification_mismatches: mismatches,
         proposal: updateResult,
+        write_source: GESTAOCLICK_MCP_WRITES_ENABLED ? 'gestaoclick_mcp' : 'betel',
         verification: refreshedResult,
         ...publicLink
       });
@@ -1244,6 +1274,7 @@ app.put('/erp/orcamentos/:id', async (req, res) => {
       before: Object.fromEntries(Object.keys(changes).map(field => [field, current?.[field] ?? null])),
       after: Object.fromEntries(Object.keys(changes).map(field => [field, refreshed?.[field] ?? null])),
       proposal: updateResult,
+      write_source: GESTAOCLICK_MCP_WRITES_ENABLED ? 'gestaoclick_mcp' : 'betel',
       verification: { confirmed: true, resource: refreshedResult },
       ...publicLink
     });
