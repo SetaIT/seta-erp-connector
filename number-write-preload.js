@@ -9,6 +9,9 @@ const BETEL_BASE_URL = process.env.BETEL_BASE_URL || 'https://api.beteltecnologi
 const BETEL_ACCESS_TOKEN = process.env.BETEL_ACCESS_TOKEN;
 const BETEL_SECRET_ACCESS_TOKEN = process.env.BETEL_SECRET_ACCESS_TOKEN;
 const CONNECTOR_API_KEY = process.env.CONNECTOR_API_KEY;
+const ERP_SUPERVISOR_BASE_URL = String(process.env.ERP_SUPERVISOR_BASE_URL || '').replace(/\/$/, '');
+const ERP_SUPERVISOR_TOKEN = String(process.env.ERP_SUPERVISOR_TOKEN || '').trim();
+const GESTAOCLICK_MCP_WRITES_ENABLED = String(process.env.GESTAOCLICK_MCP_WRITES_ENABLED || 'false').toLowerCase() === 'true';
 
 const EDITABLE_FIELDS = [
   'data',
@@ -96,6 +99,44 @@ async function betel(path, { method = 'GET', body } = {}) {
   let data;
   try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
   return { ok: response.ok, status: response.status, data };
+}
+
+async function mcpWrite({ recurso, acao, id, dados, correlationId }) {
+  if (!ERP_SUPERVISOR_BASE_URL || !ERP_SUPERVISOR_TOKEN) {
+    return { ok: false, status: 503, data: { message: 'ERP Supervisor MCP write proxy is not configured' }, source: 'gestaoclick_mcp' };
+  }
+  const response = await fetch(`${ERP_SUPERVISOR_BASE_URL}/mcp/gestaoclick/write`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${ERP_SUPERVISOR_TOKEN}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(correlationId ? { 'x-correlation-id': correlationId } : {})
+    },
+    body: JSON.stringify({
+      recurso,
+      acao,
+      ...(id !== undefined ? { id } : {}),
+      dados,
+      confirmar_escrita: true
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  return { ok: response.ok && data?.status === 'ok', status: response.status, data, source: 'gestaoclick_mcp' };
+}
+
+async function updateProposal({ id, payload, correlationId }) {
+  if (GESTAOCLICK_MCP_WRITES_ENABLED) {
+    return mcpWrite({
+      recurso: 'orcamentos',
+      acao: 'editar',
+      id,
+      dados: payload,
+      correlationId
+    });
+  }
+  const response = await betel(`/orcamentos/${encodeURIComponent(id)}`, { method: 'PUT', body: payload });
+  return { ...response, source: 'betel' };
 }
 
 function authorized(req) {
@@ -294,9 +335,34 @@ async function editByNumberHandler(req, res) {
   catch (err) { return res.status(200).json({ status: 'error', stage: err.stage || 'prepare_payload', write_attempted: false, write_succeeded: false, numero, field: err.field || null, message: err.message }); }
 
   let updateResponse;
-  try { updateResponse = await betel(`/orcamentos/${encodeURIComponent(resolved.id)}`, { method: 'PUT', body: built.payload }); }
-  catch (err) { return res.status(200).json({ status: 'error', stage: 'betel_update_transport', write_attempted: true, write_succeeded: false, numero, message: err.message }); }
-  if (!updateResponse.ok) return res.status(200).json({ status: 'error', stage: 'betel_update', write_attempted: true, write_succeeded: false, numero, betel_http_status: updateResponse.status, requested_changes: built.changes, betel_details: compactDetails(updateResponse.data) });
+  const correlationId = String(req.headers['x-correlation-id'] || '').trim() || undefined;
+  try { updateResponse = await updateProposal({ id: resolved.id, payload: built.payload, correlationId }); }
+  catch (err) {
+    return res.status(200).json({
+      status: GESTAOCLICK_MCP_WRITES_ENABLED ? 'write_outcome_unknown' : 'error',
+      stage: GESTAOCLICK_MCP_WRITES_ENABLED ? 'mcp_update_transport' : 'betel_update_transport',
+      write_attempted: true,
+      write_succeeded: false,
+      numero,
+      write_source: GESTAOCLICK_MCP_WRITES_ENABLED ? 'gestaoclick_mcp' : 'betel',
+      message: err.message,
+      retry_safe: false
+    });
+  }
+  if (!updateResponse.ok) {
+    return res.status(200).json({
+      status: 'error',
+      stage: GESTAOCLICK_MCP_WRITES_ENABLED ? 'mcp_update' : 'betel_update',
+      write_attempted: true,
+      write_succeeded: false,
+      numero,
+      write_source: updateResponse.source || (GESTAOCLICK_MCP_WRITES_ENABLED ? 'gestaoclick_mcp' : 'betel'),
+      upstream_http_status: updateResponse.status,
+      requested_changes: built.changes,
+      upstream_details: compactDetails(updateResponse.data),
+      retry_safe: false
+    });
+  }
 
   let verification;
   try { verification = await resolveByNumber(numero); }
@@ -314,7 +380,8 @@ async function editByNumberHandler(req, res) {
     numero, codigo: verification.proposal?.codigo ?? numero, changed_fields: Object.keys(built.changes),
     stability_fields_checked: stability.checked, unexpected_changes: stability.unexpected,
     before: valuesForFields(resolved.proposal, Object.keys(built.changes)), requested: built.changes, after: afterRequested,
-    connector_write_mode: 'direct_betel_number_resolution'
+    connector_write_mode: GESTAOCLICK_MCP_WRITES_ENABLED ? 'mcp_edit_with_post_write_verification' : 'direct_betel_number_resolution',
+    write_source: updateResponse.source || (GESTAOCLICK_MCP_WRITES_ENABLED ? 'gestaoclick_mcp' : 'betel')
   });
 }
 
