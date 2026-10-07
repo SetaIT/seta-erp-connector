@@ -637,7 +637,11 @@ async function resolvePublicProposalLink(result) {
   if (!hash && internalId) {
     lookupPerformed = true;
     try {
-      const refreshed = await betelRequest(`/orcamentos/${encodeURIComponent(internalId)}`);
+      const refreshed = await erpReadByIdWithMcpFallback({
+        recurso: 'orcamentos',
+        id: internalId,
+        path: `/orcamentos/${encodeURIComponent(internalId)}`
+      });
       const refreshedData = extractProposalData(refreshed);
       source = refreshedData || source;
       hash = refreshedData?.hash ? String(refreshedData.hash).trim() : '';
@@ -1186,7 +1190,7 @@ app.use('/erp', auth);
 app.get('/erp/clientes', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'clientes', path: '/clientes', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.post('/erp/clientes', async (req, res) => { try { res.json(await createClientWrite(req.body || {}, req.correlationId)); } catch (err) { handleError(err, res); } });
 app.get('/erp/produtos', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'produtos', path: '/produtos', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
-app.get('/erp/usuarios', async (req, res) => { try { res.json(await betelRequest('/usuarios', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.get('/erp/usuarios', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'usuarios', path: '/usuarios', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.get('/erp/situacoes-orcamentos', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'situacoes_orcamentos', path: '/situacoes_orcamentos', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.get('/erp/orcamentos', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'orcamentos', path: '/orcamentos', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.get('/erp/orcamentos/:id', async (req, res) => {
