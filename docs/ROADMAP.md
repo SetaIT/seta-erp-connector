@@ -153,9 +153,10 @@ Controles obrigatorios:
 - [x] `describe_recurso` validado em producao para clientes, produtos, orcamentos e recebimentos;
 - [x] contratos detalhados das acoes de escrita oficiais (`cadastrar`/`editar`) inventariados para clientes, produtos, orcamentos e recebimentos; campos obrigatorios agora sao validados antes de qualquer chamada de escrita;
 - [x] endpoint de `write-preview` sem efeito colateral implementado para validar politica, contrato e prontidao do payload antes de habilitar escrita real;
-- [x] MCP oficial do HubSpot conectado e validado em leitura;
+- [x] MCP oficial do HubSpot validado no contexto do conector ChatGPT, com leitura real de COMPANY;
 - [x] disponibilidade MCP HubSpot confirmada com leitura e escrita para COMPANY, CONTACT, DEAL, LINE_ITEM, PRODUCT, TASK e NOTE;
-- [x] smoke read-only HubSpot executado com sucesso em COMPANY;
+- [x] smoke read-only HubSpot executado com sucesso em COMPANY pelo conector ChatGPT;
+- [ ] criar MCP Auth App do HubSpot e configurar o cliente remoto `https://mcp.hubspot.com` para o runtime Railway; somente depois disso migrar o trafego do `seta-comercial-api` para o MCP HubSpot em producao;
 - [ ] mapear rotas REST HubSpot existentes para equivalentes MCP oficiais;
 - [ ] migrar primeiro pesquisas de empresa, contato, negocio e associacoes para MCP HubSpot;
 - [ ] migrar criacao/edicao de COMPANY, CONTACT e DEAL para MCP HubSpot respeitando confirmacao explicita exigida pelo conector oficial;
