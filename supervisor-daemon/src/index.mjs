@@ -227,6 +227,11 @@ async function runGestaoClickReadOnlySmoke() {
     serverName: session.initialize?.result?.serverInfo?.name || null,
     toolCount: tools.length,
     toolNames: tools.map(tool => tool.name),
+    toolSchemas: tools.map(tool => ({
+      name: tool?.name || "",
+      required: Array.isArray(tool?.inputSchema?.required) ? tool.inputSchema.required : [],
+      properties: Object.keys(tool?.inputSchema?.properties || {})
+    })),
     readOnlyCandidates: tools.filter(safeReadOnlyTool).map(tool => tool.name)
   };
   if (!selected) {
