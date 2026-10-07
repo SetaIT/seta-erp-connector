@@ -328,7 +328,39 @@ async function runGestaoClickReadOnlySmoke() {
     }
   }
   console.log("gestaoclick-mcp-core-read-matrix", JSON.stringify(matrix));
-  return { ...result, coreReadMatrix: matrix };
+
+  const describeTargets = ["clientes", "produtos", "orcamentos", "recebimentos"];
+  const descriptions = [];
+  for (const recurso of describeTargets) {
+    try {
+      const described = await gestaoclickMcpRequest({
+        jsonrpc: "2.0",
+        id: crypto.randomUUID(),
+        method: "tools/call",
+        params: {
+          name: "describe_recurso",
+          arguments: { recurso }
+        }
+      }, session.sessionId);
+      const describeResult = described.body?.result || null;
+      const describeContent = Array.isArray(describeResult?.content) ? describeResult.content : [];
+      const preview = describeContent
+        .filter(item => item?.type === "text")
+        .map(item => String(item?.text || ""))
+        .join("\n")
+        .slice(0, 1800);
+      descriptions.push({
+        recurso,
+        ok: !describeResult?.isError,
+        contentItems: describeContent.length,
+        preview
+      });
+    } catch (error) {
+      descriptions.push({ recurso, ok: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  console.log("gestaoclick-mcp-resource-descriptions", JSON.stringify(descriptions));
+  return { ...result, coreReadMatrix: matrix, resourceDescriptions: descriptions };
 }
 
 async function ensureSchema() {
