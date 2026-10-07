@@ -360,7 +360,55 @@ async function runGestaoClickReadOnlySmoke() {
     }
   }
   console.log("gestaoclick-mcp-resource-descriptions", JSON.stringify(descriptions));
-  return { ...result, coreReadMatrix: matrix, resourceDescriptions: descriptions };
+
+  const actionTargets = [
+    { recurso: "clientes", acao: "cadastrar" },
+    { recurso: "clientes", acao: "editar" },
+    { recurso: "produtos", acao: "cadastrar" },
+    { recurso: "orcamentos", acao: "cadastrar" },
+    { recurso: "orcamentos", acao: "editar" },
+    { recurso: "recebimentos", acao: "cadastrar" }
+  ];
+  const actionDescriptions = [];
+  for (const target of actionTargets) {
+    try {
+      const described = await gestaoclickMcpRequest({
+        jsonrpc: "2.0",
+        id: crypto.randomUUID(),
+        method: "tools/call",
+        params: {
+          name: "describe_recurso",
+          arguments: target
+        }
+      }, session.sessionId);
+      const describeResult = described.body?.result || null;
+      const describeContent = Array.isArray(describeResult?.content) ? describeResult.content : [];
+      const preview = describeContent
+        .filter(item => item?.type === "text")
+        .map(item => String(item?.text || ""))
+        .join("\n")
+        .slice(0, 3500);
+      actionDescriptions.push({
+        ...target,
+        ok: !describeResult?.isError,
+        contentItems: describeContent.length,
+        preview
+      });
+    } catch (error) {
+      actionDescriptions.push({
+        ...target,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  console.log("gestaoclick-mcp-action-descriptions", JSON.stringify(actionDescriptions));
+  return {
+    ...result,
+    coreReadMatrix: matrix,
+    resourceDescriptions: descriptions,
+    actionDescriptions
+  };
 }
 
 async function ensureSchema() {
