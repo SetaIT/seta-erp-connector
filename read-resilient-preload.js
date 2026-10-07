@@ -9,6 +9,9 @@ const BETEL_BASE_URL = process.env.BETEL_BASE_URL || 'https://api.beteltecnologi
 const BETEL_ACCESS_TOKEN = process.env.BETEL_ACCESS_TOKEN;
 const BETEL_SECRET_ACCESS_TOKEN = process.env.BETEL_SECRET_ACCESS_TOKEN;
 const CONNECTOR_API_KEY = process.env.CONNECTOR_API_KEY;
+const ERP_SUPERVISOR_BASE_URL = String(process.env.ERP_SUPERVISOR_BASE_URL || '').replace(/\/$/, '');
+const ERP_SUPERVISOR_TOKEN = String(process.env.ERP_SUPERVISOR_TOKEN || '').trim();
+const GESTAOCLICK_MCP_READS_ENABLED = String(process.env.GESTAOCLICK_MCP_READS_ENABLED || 'false').toLowerCase() === 'true';
 const READ_TIMEOUT_MS = 6500;
 const READ_MAX_ATTEMPTS = 2;
 
@@ -49,6 +52,79 @@ function findProposalByNumber(payload, numero) {
     if (String(value ?? '') === target) return single;
   }
   return null;
+}
+
+async function supervisorMcpRead({ recurso, acao = 'listar', id, dados = {} }) {
+  if (!ERP_SUPERVISOR_BASE_URL || !ERP_SUPERVISOR_TOKEN) throw new Error('ERP Supervisor MCP read proxy is not configured');
+  const response = await fetch(`${ERP_SUPERVISOR_BASE_URL}/mcp/gestaoclick/read`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${ERP_SUPERVISOR_TOKEN}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ recurso, acao, ...(id !== undefined ? { id } : {}), dados })
+  });
+  const envelope = await response.json().catch(() => ({}));
+  if (!response.ok || envelope?.status !== 'ok') {
+    const error = new Error(`MCP read proxy failed with HTTP ${response.status}`);
+    error.details = envelope;
+    throw error;
+  }
+  const content = Array.isArray(envelope?.result?.content) ? envelope.result.content : [];
+  const text = content.find(item => item?.type === 'text')?.text;
+  if (!text) throw new Error('MCP read proxy returned no text content');
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { throw new Error('MCP read proxy returned invalid JSON'); }
+  const upstreamStatus = Number(parsed?.http_status || 200);
+  return {
+    ok: upstreamStatus >= 200 && upstreamStatus < 300,
+    status: upstreamStatus,
+    data: parsed?.resposta ?? parsed,
+    attempts: 1,
+    source: 'gestaoclick_mcp'
+  };
+}
+
+async function resilientProposalListByNumber(numero) {
+  if (GESTAOCLICK_MCP_READS_ENABLED) {
+    try {
+      return await supervisorMcpRead({
+        recurso: 'orcamentos',
+        acao: 'listar',
+        dados: { codigo: numero, limite: 1 }
+      });
+    } catch (error) {
+      console.warn(JSON.stringify({
+        event: 'gestaoclick_mcp_number_read_fallback',
+        stage: 'list',
+        numero,
+        message: error?.message || String(error)
+      }));
+    }
+  }
+  return resilientBetelGet(`/orcamentos?codigo=${encodeURIComponent(numero)}`);
+}
+
+async function resilientProposalDetail(id) {
+  if (GESTAOCLICK_MCP_READS_ENABLED) {
+    try {
+      return await supervisorMcpRead({
+        recurso: 'orcamentos',
+        acao: 'visualizar',
+        id,
+        dados: {}
+      });
+    } catch (error) {
+      console.warn(JSON.stringify({
+        event: 'gestaoclick_mcp_number_read_fallback',
+        stage: 'detail',
+        id: String(id),
+        message: error?.message || String(error)
+      }));
+    }
+  }
+  return resilientBetelGet(`/orcamentos/${encodeURIComponent(id)}`);
 }
 
 async function resilientBetelGet(path) {
@@ -94,7 +170,7 @@ async function resilientReadByNumberHandler(req, res) {
 
   let listResponse;
   try {
-    listResponse = await resilientBetelGet(`/orcamentos?codigo=${encodeURIComponent(numero)}`);
+    listResponse = await resilientProposalListByNumber(numero);
   } catch (err) {
     return res.status(200).json({ status: 'error', stage: 'resolve_number_transport', read_attempted: true, read_succeeded: false, numero, request_id: requestId, betel_attempts: err.attempts || READ_MAX_ATTEMPTS, message: err.message });
   }
@@ -110,7 +186,7 @@ async function resilientReadByNumberHandler(req, res) {
 
   let detailResponse;
   try {
-    detailResponse = await resilientBetelGet(`/orcamentos/${encodeURIComponent(internalId)}`);
+    detailResponse = await resilientProposalDetail(internalId);
   } catch (err) {
     return res.status(200).json({ status: 'error', stage: 'load_resolved_proposal_transport', read_attempted: true, read_succeeded: false, numero, request_id: requestId, resolved_id: internalId, betel_attempts: err.attempts || READ_MAX_ATTEMPTS, message: err.message });
   }
@@ -144,7 +220,9 @@ async function resilientReadByNumberHandler(req, res) {
     request_id: requestId,
     betel_list_attempts: listResponse.attempts,
     betel_detail_attempts: detailResponse.attempts,
-    connector_read_mode: 'resilient_betel_number_resolution'
+    connector_read_mode: GESTAOCLICK_MCP_READS_ENABLED ? 'mcp_with_betel_fallback_number_resolution' : 'resilient_betel_number_resolution',
+    list_source: listResponse.source || 'betel',
+    detail_source: detailResponse.source || 'betel'
   });
 }
 
