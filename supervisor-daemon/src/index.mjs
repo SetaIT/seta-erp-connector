@@ -71,6 +71,26 @@ export function failureDisposition(retryCount, maxRetries) {
   };
 }
 
+export function gestaoClickWritePolicy({
+  recurso,
+  acao,
+  confirmarEscrita,
+  readOnly = GESTAOCLICK_MCP_READ_ONLY
+} = {}) {
+  const normalizedResource = String(recurso || "").trim().toLowerCase();
+  const normalizedAction = String(acao || "").trim().toLowerCase();
+  const allowed = {
+    clientes: new Set(["cadastrar", "editar"]),
+    orcamentos: new Set(["cadastrar", "editar"])
+  };
+  if (readOnly) return { allowed: false, reason: "mcp_read_only" };
+  if (confirmarEscrita !== true) return { allowed: false, reason: "explicit_confirmation_required" };
+  if (!allowed[normalizedResource]?.has(normalizedAction)) {
+    return { allowed: false, reason: "resource_or_action_not_whitelisted" };
+  }
+  return { allowed: true, reason: "allowed", recurso: normalizedResource, acao: normalizedAction };
+}
+
 function requireDispatcherAuth(req, res, next) {
   if (!DISPATCHER_TOKEN) {
     return res.status(503).json({ message: "dispatcher authentication is not configured" });
@@ -368,6 +388,20 @@ async function ensureSchema() {
       request_count integer NOT NULL DEFAULT 0,
       updated_at timestamptz NOT NULL DEFAULT now()
     );
+
+    CREATE TABLE IF NOT EXISTS gestaoclick_mcp_audit (
+      id uuid PRIMARY KEY,
+      correlation_id text NOT NULL,
+      recurso text NOT NULL,
+      acao text NOT NULL,
+      status text NOT NULL,
+      request_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+      response_summary jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+
+    CREATE INDEX IF NOT EXISTS gestaoclick_mcp_audit_correlation_idx
+      ON gestaoclick_mcp_audit (correlation_id, created_at DESC);
   `);
 }
 
@@ -508,6 +542,89 @@ app.post("/mcp/gestaoclick/read", requireDispatcherAuth, async (req, res) => {
     res.json({ status: "ok", recurso, acao, result: called.body?.result || null });
   } catch (error) {
     res.status(502).json({ status: "error", message: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.post("/mcp/gestaoclick/write", requireDispatcherAuth, async (req, res) => {
+  const correlationId = String(req.headers["x-correlation-id"] || crypto.randomUUID());
+  const recurso = String(req.body?.recurso || "").trim();
+  const acao = String(req.body?.acao || "").trim();
+  const dados = req.body?.dados && typeof req.body.dados === "object" ? req.body.dados : {};
+  const id = req.body?.id ?? undefined;
+  const policy = gestaoClickWritePolicy({
+    recurso,
+    acao,
+    confirmarEscrita: req.body?.confirmar_escrita,
+    readOnly: GESTAOCLICK_MCP_READ_ONLY
+  });
+  if (!policy.allowed) {
+    await query(`
+      INSERT INTO gestaoclick_mcp_audit
+        (id, correlation_id, recurso, acao, status, request_payload, response_summary)
+      VALUES ($1,$2,$3,$4,'blocked',$5::jsonb,$6::jsonb)
+    `, [
+      crypto.randomUUID(),
+      correlationId,
+      recurso || "unknown",
+      acao || "unknown",
+      JSON.stringify({ id: id ?? null, dados, confirmar_escrita: req.body?.confirmar_escrita === true }),
+      JSON.stringify({ reason: policy.reason })
+    ]);
+    return res.status(409).json({ status: "blocked", correlationId, reason: policy.reason });
+  }
+
+  try {
+    const session = await openGestaoClickMcpSession();
+    const called = await gestaoclickMcpRequest({
+      jsonrpc: "2.0",
+      id: crypto.randomUUID(),
+      method: "tools/call",
+      params: {
+        name: "chamar_api",
+        arguments: {
+          recurso: policy.recurso,
+          acao: policy.acao,
+          ...(id !== undefined ? { id } : {}),
+          dados,
+          confirmar_escrita: true
+        }
+      }
+    }, session.sessionId);
+    const result = called.body?.result || null;
+    const ok = !result?.isError;
+    await query(`
+      INSERT INTO gestaoclick_mcp_audit
+        (id, correlation_id, recurso, acao, status, request_payload, response_summary)
+      VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)
+    `, [
+      crypto.randomUUID(),
+      correlationId,
+      policy.recurso,
+      policy.acao,
+      ok ? "success" : "error",
+      JSON.stringify({ id: id ?? null, dados, confirmar_escrita: true }),
+      JSON.stringify({ isError: Boolean(result?.isError), contentItems: Array.isArray(result?.content) ? result.content.length : 0 })
+    ]);
+    if (!ok) return res.status(502).json({ status: "error", correlationId, result });
+    return res.json({ status: "ok", correlationId, recurso: policy.recurso, acao: policy.acao, result });
+  } catch (error) {
+    await query(`
+      INSERT INTO gestaoclick_mcp_audit
+        (id, correlation_id, recurso, acao, status, request_payload, response_summary)
+      VALUES ($1,$2,$3,$4,'exception',$5::jsonb,$6::jsonb)
+    `, [
+      crypto.randomUUID(),
+      correlationId,
+      policy.recurso,
+      policy.acao,
+      JSON.stringify({ id: id ?? null, dados, confirmar_escrita: true }),
+      JSON.stringify({ message: error instanceof Error ? error.message : String(error) })
+    ]);
+    return res.status(502).json({
+      status: "error",
+      correlationId,
+      message: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 
