@@ -86,9 +86,9 @@ Tarefa principal atual: Issue #5 - CRUD de propostas somente por numero comercia
 - [x] rota publica de DELETE por numero com resolucao interna do ID;
 - [x] rota publica de PUT/edicao por numero com resolucao interna do ID;
 - [x] OpenAPI sem exigir ID interno no fluxo recomendado;
-- [ ] regras de pagamento Locacao/SpareParts;
+- [x] regras de pagamento Locacao/SpareParts implementadas e testadas (a vista, 1 parcela, vencimento em 30 dias, parcela reconciliada com o total da proposta);
 - [ ] fluxo Deal -> email -> Proposta Enviada -> follow-up -> Ganho/Perdido;
-- [ ] testes de regressao das regras comerciais.
+- [ ] testes de regressao das regras comerciais (regressao de pagamento Locacao/SpareParts adicionada; ampliar para introducao, frete, itens e ciclo completo).
 
 ## Fase 5 - Migracao de producao Railway -> Google Cloud Run
 Executar somente apos a conclusao do QA automatico e a estabilizacao das operacoes CRUD de propostas.
@@ -136,7 +136,7 @@ Controles obrigatorios:
 - [x] rate limit centralizado com intervalo minimo e contador diario persistido;
 - [x] proxy read-only protegido para `chamar_api`, com allowlist de acoes de leitura e `confirmar_escrita=false`;
 - [x] cutover E2E `seta-comercial-api -> erp-supervisor-daemon -> MCP oficial -> GestaoClick` validado em producao para leitura (`clientes`, smoke HTTP 200);
-- [x] politica/whitelist inicial de escrita implementada para `clientes` e `orcamentos` (`cadastrar`/`editar`), ainda bloqueada em producao enquanto `GESTAOCLICK_MCP_READ_ONLY=true`;
+- [x] politica/whitelist inicial de escrita implementada para `clientes` (`cadastrar`/`editar`), `orcamentos` (`cadastrar`/`editar`), `produtos` (`cadastrar`) e `recebimentos` (`cadastrar`), ainda bloqueada em producao enquanto `GESTAOCLICK_MCP_READ_ONLY=true`;
 - [x] auditoria estruturada por correlation ID para escritas MCP em Postgres;
 - [x] confirmacao explicita obrigatoria (`confirmar_escrita=true`) implementada na politica de escrita; ativacao de escrita real permanece pendente;
 - [x] fallback de leitura para REST legado mantido no `seta-comercial-api` durante o cutover; rollback de escrita real continua antes da ativacao.
@@ -144,6 +144,8 @@ Controles obrigatorios:
 - [x] caminho de edicao de proposta via MCP oficial implementado sob feature flag, ainda desabilitado em producao;
 - [x] caminho de criacao de proposta via MCP oficial implementado sob feature flag, ainda desabilitado em producao;
 - [x] resolucao pre/post-write por numero nas rotas de edicao/exclusao migrada para leituras MCP com fallback REST;
+- [x] `describe_recurso` validado em producao para clientes, produtos, orcamentos e recebimentos;
+- [ ] contratos detalhados das acoes de escrita oficiais (`cadastrar`/`editar`) inventariados antes de qualquer ativacao de escrita;
 
 Ferramentas alvo:
 - consultar_proposta
