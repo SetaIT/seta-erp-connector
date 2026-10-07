@@ -1453,4 +1453,15 @@ app.post('/erp/regras-faturamento/calcular', (req, res) => {
   } catch (err) { handleError(err, res); }
 });
 
+if (GESTAOCLICK_MCP_READS_ENABLED) {
+  supervisorMcpRead('clientes', { limite: 1 })
+    .then(result => {
+      const count = Array.isArray(result?.data) ? result.data.length : null;
+      console.log(JSON.stringify({ event: 'gestaoclick_mcp_read_smoke', status: 'ok', recurso: 'clientes', returned: count }));
+    })
+    .catch(error => {
+      console.error(JSON.stringify({ event: 'gestaoclick_mcp_read_smoke', status: 'error', message: error?.message || String(error) }));
+    });
+}
+
 app.listen(PORT, '0.0.0.0', () => console.log(`Seta ERP Connector listening on 0.0.0.0:${PORT}`));
