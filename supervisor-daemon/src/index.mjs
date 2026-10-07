@@ -430,6 +430,44 @@ app.get("/mcp/gestaoclick/tools", requireDispatcherAuth, async (_req, res) => {
   }
 });
 
+app.post("/mcp/gestaoclick/read", requireDispatcherAuth, async (req, res) => {
+  try {
+    if (!GESTAOCLICK_MCP_READ_ONLY) {
+      return res.status(409).json({ status: "error", message: "GestaoClick MCP is not in read-only mode" });
+    }
+    const recurso = String(req.body?.recurso || "").trim();
+    const acao = String(req.body?.acao || "listar").trim();
+    const dados = req.body?.dados && typeof req.body.dados === "object" ? req.body.dados : {};
+    const id = req.body?.id ?? undefined;
+    if (!recurso) return res.status(400).json({ status: "error", message: "recurso is required" });
+    if (!/^(listar|consultar|buscar|visualizar|obter|pesquisar|list|get|read|search|find|lookup|query)$/i.test(acao)) {
+      return res.status(400).json({ status: "error", message: "acao is not allowed in read-only proxy" });
+    }
+    const session = await openGestaoClickMcpSession();
+    const called = await gestaoclickMcpRequest({
+      jsonrpc: "2.0",
+      id: crypto.randomUUID(),
+      method: "tools/call",
+      params: {
+        name: "chamar_api",
+        arguments: {
+          recurso,
+          acao,
+          ...(id !== undefined ? { id } : {}),
+          dados,
+          confirmar_escrita: false
+        }
+      }
+    }, session.sessionId);
+    if (called.body?.result?.isError) {
+      return res.status(502).json({ status: "error", result: called.body?.result || null });
+    }
+    res.json({ status: "ok", recurso, acao, result: called.body?.result || null });
+  } catch (error) {
+    res.status(502).json({ status: "error", message: error instanceof Error ? error.message : String(error) });
+  }
+});
+
 app.get("/status", async (_req, res) => {
   const [state, tasks, events] = await Promise.all([
     query("SELECT * FROM supervisor_state WHERE singleton=true"),
