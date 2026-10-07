@@ -82,10 +82,10 @@ O MCP oficial do GestaoClick e uma integracao direta do Supervisor Comercial. O 
 Tarefa principal atual: Issue #5 - CRUD de propostas somente por numero comercial.
 
 - [ ] CRUD de proposta totalmente pelo numero comercial para o usuario;
-- [ ] confirmacao segura para edicao/exclusao;
-- [ ] rota publica de DELETE por numero com resolucao interna do ID;
-- [ ] rota publica de PUT/edicao por numero com resolucao interna do ID;
-- [ ] OpenAPI sem exigir ID interno no fluxo recomendado;
+- [x] confirmacao segura para edicao/exclusao;
+- [x] rota publica de DELETE por numero com resolucao interna do ID;
+- [x] rota publica de PUT/edicao por numero com resolucao interna do ID;
+- [x] OpenAPI sem exigir ID interno no fluxo recomendado;
 - [ ] regras de pagamento Locacao/SpareParts;
 - [ ] fluxo Deal -> email -> Proposta Enviada -> follow-up -> Ganho/Perdido;
 - [ ] testes de regressao das regras comerciais.
@@ -140,6 +140,10 @@ Controles obrigatorios:
 - [x] auditoria estruturada por correlation ID para escritas MCP em Postgres;
 - [x] confirmacao explicita obrigatoria (`confirmar_escrita=true`) implementada na politica de escrita; ativacao de escrita real permanece pendente;
 - [x] fallback de leitura para REST legado mantido no `seta-comercial-api` durante o cutover; rollback de escrita real continua antes da ativacao.
+- [x] consulta de proposta por numero comercial preparada via MCP oficial com resolucao interna do ID e fallback de leitura;
+- [x] caminho de edicao de proposta via MCP oficial implementado sob feature flag, ainda desabilitado em producao;
+- [x] caminho de criacao de proposta via MCP oficial implementado sob feature flag, ainda desabilitado em producao;
+- [x] resolucao pre/post-write por numero nas rotas de edicao/exclusao migrada para leituras MCP com fallback REST;
 
 Ferramentas alvo:
 - consultar_proposta
