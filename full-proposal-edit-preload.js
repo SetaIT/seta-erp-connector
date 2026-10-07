@@ -8,6 +8,10 @@ const BETEL_BASE_URL = process.env.BETEL_BASE_URL || 'https://api.beteltecnologi
 const CONNECTOR_API_KEY = process.env.CONNECTOR_API_KEY;
 const BETEL_ACCESS_TOKEN = process.env.BETEL_ACCESS_TOKEN;
 const BETEL_SECRET_ACCESS_TOKEN = process.env.BETEL_SECRET_ACCESS_TOKEN;
+const ERP_SUPERVISOR_BASE_URL = String(process.env.ERP_SUPERVISOR_BASE_URL || '').replace(/\/$/, '');
+const ERP_SUPERVISOR_TOKEN = String(process.env.ERP_SUPERVISOR_TOKEN || '').trim();
+const GESTAOCLICK_MCP_READS_ENABLED = String(process.env.GESTAOCLICK_MCP_READS_ENABLED || 'false').toLowerCase() === 'true';
+const GESTAOCLICK_MCP_WRITES_ENABLED = String(process.env.GESTAOCLICK_MCP_WRITES_ENABLED || 'false').toLowerCase() === 'true';
 
 const allowed = [
   'data',
@@ -92,6 +96,78 @@ async function betel(path, init = {}) {
   return { ok: response.ok, status: response.status, data };
 }
 
+async function mcpProxy(path, payload, correlationId) {
+  if (!ERP_SUPERVISOR_BASE_URL || !ERP_SUPERVISOR_TOKEN) throw new Error('ERP Supervisor MCP proxy is not configured');
+  const response = await fetch(`${ERP_SUPERVISOR_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${ERP_SUPERVISOR_TOKEN}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(correlationId ? { 'x-correlation-id': correlationId } : {})
+    },
+    body: JSON.stringify(payload)
+  });
+  const envelope = await response.json().catch(() => ({}));
+  if (!response.ok || envelope?.status !== 'ok') {
+    const error = new Error(`MCP proxy failed with HTTP ${response.status}`);
+    error.status = response.status;
+    error.details = envelope;
+    throw error;
+  }
+  const content = Array.isArray(envelope?.result?.content) ? envelope.result.content : [];
+  const text = content.find(item => item?.type === 'text')?.text;
+  let parsed = null;
+  if (text) {
+    try { parsed = JSON.parse(text); } catch { parsed = { raw: String(text).slice(0, 2000) }; }
+  }
+  const upstreamStatus = Number(parsed?.http_status || response.status || 200);
+  return {
+    ok: upstreamStatus >= 200 && upstreamStatus < 300,
+    status: upstreamStatus,
+    data: parsed?.resposta ?? parsed ?? envelope,
+    source: 'gestaoclick_mcp'
+  };
+}
+
+async function readProposal(id, correlationId) {
+  if (GESTAOCLICK_MCP_READS_ENABLED) {
+    try {
+      return await mcpProxy('/mcp/gestaoclick/read', {
+        recurso: 'orcamentos',
+        acao: 'visualizar',
+        id,
+        dados: {}
+      }, correlationId);
+    } catch (error) {
+      console.warn(JSON.stringify({
+        event: 'gestaoclick_mcp_full_edit_read_fallback',
+        id: String(id),
+        message: error?.message || String(error)
+      }));
+    }
+  }
+  const response = await betel(`/orcamentos/${encodeURIComponent(id)}`);
+  return { ...response, source: 'betel' };
+}
+
+async function updateProposal(id, payload, correlationId) {
+  if (GESTAOCLICK_MCP_WRITES_ENABLED) {
+    return mcpProxy('/mcp/gestaoclick/write', {
+      recurso: 'orcamentos',
+      acao: 'editar',
+      id,
+      dados: payload,
+      confirmar_escrita: true
+    }, correlationId);
+  }
+  const response = await betel(`/orcamentos/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+  return { ...response, source: 'betel' };
+}
+
 function inferProposalType(current, requested) {
   const requestedType = String(requested || '').trim().toLowerCase();
   if (requestedType === 'produto' || requestedType === 'servico') return requestedType;
@@ -162,11 +238,16 @@ function buildPayload(current, requestBody) {
 
 async function editFullProposal(req, res) {
   if (!authorized(req)) return res.status(401).json({ message: 'unauthorized' });
-  if (!BETEL_ACCESS_TOKEN || !BETEL_SECRET_ACCESS_TOKEN) return res.status(503).json({ message: 'Credenciais Betel não configuradas.' });
+  const readConfigured = (GESTAOCLICK_MCP_READS_ENABLED && ERP_SUPERVISOR_BASE_URL && ERP_SUPERVISOR_TOKEN) || (BETEL_ACCESS_TOKEN && BETEL_SECRET_ACCESS_TOKEN);
+  const writeConfigured = GESTAOCLICK_MCP_WRITES_ENABLED
+    ? Boolean(ERP_SUPERVISOR_BASE_URL && ERP_SUPERVISOR_TOKEN)
+    : Boolean(BETEL_ACCESS_TOKEN && BETEL_SECRET_ACCESS_TOKEN);
+  if (!readConfigured || !writeConfigured) return res.status(503).json({ message: 'Integração ERP não configurada para leitura/escrita.' });
   if (req.body?.confirmacao_edicao !== true) return res.status(400).json({ message: 'Confirmação de edição obrigatória.' });
 
-  const id = encodeURIComponent(req.params.id);
-  const currentResponse = await betel(`/orcamentos/${id}`);
+  const id = String(req.params.id);
+  const correlationId = String(req.headers['x-correlation-id'] || '').trim() || undefined;
+  const currentResponse = await readProposal(id, correlationId);
   const current = unwrap(currentResponse.data);
   if (!currentResponse.ok || !current || typeof current !== 'object') {
     return res.status(currentResponse.status || 502).json({ message: 'Não foi possível carregar a proposta atual.', details: currentResponse.data });
@@ -182,20 +263,34 @@ async function editFullProposal(req, res) {
     });
   }
 
-  const updated = await betel(`/orcamentos/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(built.payload)
-  });
+  let updated;
+  try {
+    updated = await updateProposal(id, built.payload, correlationId);
+  } catch (error) {
+    return res.status(502).json({
+      status: GESTAOCLICK_MCP_WRITES_ENABLED ? 'write_outcome_unknown' : 'error',
+      message: GESTAOCLICK_MCP_WRITES_ENABLED
+        ? 'A conexão com o MCP falhou após iniciar a atualização. Não repita automaticamente.'
+        : 'Falha de transporte ao atualizar a proposta.',
+      details: error?.details || null,
+      changes_requested: Object.keys(built.changes),
+      preserved_fields: built.preservedFields,
+      write_source: GESTAOCLICK_MCP_WRITES_ENABLED ? 'gestaoclick_mcp' : 'betel',
+      retry_safe: false
+    });
+  }
   if (!updated.ok) {
-    return res.status(updated.status).json({
+    return res.status(updated.status || 502).json({
       message: 'O ERP recusou a atualização.',
       details: updated.data,
       changes_requested: Object.keys(built.changes),
-      preserved_fields: built.preservedFields
+      preserved_fields: built.preservedFields,
+      write_source: updated.source || (GESTAOCLICK_MCP_WRITES_ENABLED ? 'gestaoclick_mcp' : 'betel'),
+      retry_safe: false
     });
   }
 
-  const verificationResponse = await betel(`/orcamentos/${id}`);
+  const verificationResponse = await readProposal(id, correlationId);
   const verifiedProposal = unwrap(verificationResponse.data);
   const confirmed = Boolean(
     verificationResponse.ok &&
@@ -212,8 +307,10 @@ async function editFullProposal(req, res) {
     changes_requested: Object.keys(built.changes),
     preserved_fields: built.preservedFields,
     proposal: updated.data,
+    write_source: updated.source || (GESTAOCLICK_MCP_WRITES_ENABLED ? 'gestaoclick_mcp' : 'betel'),
     verification: {
       confirmed,
+      source: verificationResponse.source || 'betel',
       proposal: confirmed ? verifiedProposal : null
     }
   });
