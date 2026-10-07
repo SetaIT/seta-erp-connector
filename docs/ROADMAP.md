@@ -135,10 +135,11 @@ Controles obrigatorios:
 - [x] inventario inicial das 5 tools expostas pelo MCP oficial (`listar_recursos`, `describe_recurso`, `buscar_conhecimento`, `ler_conhecimento`, `chamar_api`);
 - [x] rate limit centralizado com intervalo minimo e contador diario persistido;
 - [x] proxy read-only protegido para `chamar_api`, com allowlist de acoes de leitura e `confirmar_escrita=false`;
-- [ ] whitelist separada de tools de escrita;
-- [ ] auditoria por correlation ID de toda chamada MCP;
-- [ ] preview e confirmacao para escrita comercial;
-- [ ] rollback/fallback para o connector nas operacoes criticas.
+- [x] cutover E2E `seta-comercial-api -> erp-supervisor-daemon -> MCP oficial -> GestaoClick` validado em producao para leitura (`clientes`, smoke HTTP 200);
+- [x] politica/whitelist inicial de escrita implementada para `clientes` e `orcamentos` (`cadastrar`/`editar`), ainda bloqueada em producao enquanto `GESTAOCLICK_MCP_READ_ONLY=true`;
+- [x] auditoria estruturada por correlation ID para escritas MCP em Postgres;
+- [x] confirmacao explicita obrigatoria (`confirmar_escrita=true`) implementada na politica de escrita; ativacao de escrita real permanece pendente;
+- [x] fallback de leitura para REST legado mantido no `seta-comercial-api` durante o cutover; rollback de escrita real continua antes da ativacao.
 
 Ferramentas alvo:
 - consultar_proposta
