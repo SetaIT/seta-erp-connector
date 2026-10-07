@@ -82,7 +82,8 @@ export function gestaoClickWritePolicy({
   const normalizedAction = String(acao || "").trim().toLowerCase();
   const allowed = {
     clientes: new Set(["cadastrar", "editar"]),
-    orcamentos: new Set(["cadastrar", "editar"])
+    orcamentos: new Set(["cadastrar", "editar"]),
+    produtos: new Set(["cadastrar"])
   };
   if (readOnly) return { allowed: false, reason: "mcp_read_only" };
   if (confirmarEscrita !== true) return { allowed: false, reason: "explicit_confirmation_required" };
