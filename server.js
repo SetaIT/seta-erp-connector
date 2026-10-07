@@ -26,6 +26,9 @@ const CONNECTOR_API_KEY = process.env.CONNECTOR_API_KEY;
 const HUBSPOT_BASE_URL = process.env.HUBSPOT_BASE_URL || 'https://api.hubapi.com';
 const HUBSPOT_ACCESS_TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
 const PUBLIC_PROPOSAL_BASE_URL = process.env.PUBLIC_PROPOSAL_BASE_URL || 'https://app.setatelecom.com.br/prop';
+const ERP_SUPERVISOR_BASE_URL = String(process.env.ERP_SUPERVISOR_BASE_URL || '').replace(/\/$/, '');
+const ERP_SUPERVISOR_TOKEN = String(process.env.ERP_SUPERVISOR_TOKEN || '').trim();
+const GESTAOCLICK_MCP_READS_ENABLED = String(process.env.GESTAOCLICK_MCP_READS_ENABLED || 'false').toLowerCase() === 'true';
 
 function getMissingEnv() {
   const missing = [];
@@ -113,6 +116,66 @@ async function betelRequest(path, { method = 'GET', query, body, correlationId, 
     }
   }
   throw lastError;
+}
+
+async function supervisorMcpRead(recurso, query = {}) {
+  if (!ERP_SUPERVISOR_BASE_URL || !ERP_SUPERVISOR_TOKEN) {
+    throw new Error('ERP Supervisor MCP read proxy is not configured');
+  }
+  const response = await fetch(`${ERP_SUPERVISOR_BASE_URL}/mcp/gestaoclick/read`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${ERP_SUPERVISOR_TOKEN}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      recurso,
+      acao: 'listar',
+      dados: query || {}
+    })
+  });
+  const envelope = await response.json().catch(() => ({}));
+  if (!response.ok || envelope?.status !== 'ok') {
+    const err = new Error(`ERP Supervisor MCP read failed ${response.status}`);
+    err.status = response.status || 502;
+    err.source = 'gestaoclick_mcp';
+    err.data = envelope;
+    throw err;
+  }
+  const content = Array.isArray(envelope?.result?.content) ? envelope.result.content : [];
+  const text = content.find(item => item?.type === 'text')?.text;
+  if (!text) throw new Error(`GestaoClick MCP returned no text payload for ${recurso}`);
+  let parsed;
+  try { parsed = JSON.parse(text); } catch {
+    const err = new Error(`GestaoClick MCP returned invalid JSON for ${recurso}`);
+    err.source = 'gestaoclick_mcp';
+    err.data = { text: String(text).slice(0, 500) };
+    throw err;
+  }
+  if (parsed?.http_status && Number(parsed.http_status) >= 400) {
+    const err = new Error(`GestaoClick MCP upstream error ${parsed.http_status}`);
+    err.status = Number(parsed.http_status);
+    err.source = 'gestaoclick_mcp';
+    err.data = parsed?.resposta || parsed;
+    throw err;
+  }
+  return parsed?.resposta ?? parsed;
+}
+
+async function erpReadWithMcpFallback({ recurso, path, query, correlationId }) {
+  if (GESTAOCLICK_MCP_READS_ENABLED) {
+    try {
+      return await supervisorMcpRead(recurso, query);
+    } catch (err) {
+      structuredLog('gestaoclick_mcp_read_fallback', {
+        correlation_id: correlationId || null,
+        recurso,
+        message: err?.message || String(err)
+      });
+    }
+  }
+  return betelRequest(path, { query, correlationId });
 }
 
 async function hubspotRequest(path, { method = 'GET', body, correlationId, operation, observe = false } = {}) {
@@ -952,12 +1015,12 @@ async function verifyDealWrite(numero, expected, correlationId) {
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'seta-erp-connector', configured: getMissingEnv().length === 0, hubspot_configured: Boolean(HUBSPOT_ACCESS_TOKEN) }));
 app.use('/erp', auth);
 
-app.get('/erp/clientes', async (req, res) => { try { res.json(await betelRequest('/clientes', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.get('/erp/clientes', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'clientes', path: '/clientes', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.post('/erp/clientes', async (req, res) => { try { res.json(await betelRequest('/clientes', { method: 'POST', body: req.body })); } catch (err) { handleError(err, res); } });
-app.get('/erp/produtos', async (req, res) => { try { res.json(await betelRequest('/produtos', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.get('/erp/produtos', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'produtos', path: '/produtos', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.get('/erp/usuarios', async (req, res) => { try { res.json(await betelRequest('/usuarios', { query: req.query })); } catch (err) { handleError(err, res); } });
-app.get('/erp/situacoes-orcamentos', async (req, res) => { try { res.json(await betelRequest('/situacoes_orcamentos', { query: req.query })); } catch (err) { handleError(err, res); } });
-app.get('/erp/orcamentos', async (req, res) => { try { res.json(await betelRequest('/orcamentos', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.get('/erp/situacoes-orcamentos', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'situacoes_orcamentos', path: '/situacoes_orcamentos', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
+app.get('/erp/orcamentos', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'orcamentos', path: '/orcamentos', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.get('/erp/orcamentos/:id', async (req, res) => {
   try {
     const result = await betelRequest(`/orcamentos/${encodeURIComponent(req.params.id)}`);
@@ -1354,7 +1417,7 @@ app.get('/erp/recebimentos', async (req, res) => { try { res.json(await betelReq
 app.get('/erp/recebimentos/:id', async (req, res) => { try { res.json(await betelRequest(`/recebimentos/${encodeURIComponent(req.params.id)}`)); } catch (err) { handleError(err, res); } });
 app.post('/erp/recebimentos', async (req, res) => { try { res.json(await betelRequest('/recebimentos', { method: 'POST', body: req.body })); } catch (err) { handleError(err, res); } });
 app.get('/erp/planos-contas', async (req, res) => { try { res.json(await betelRequest('/planos_contas', { query: req.query })); } catch (err) { handleError(err, res); } });
-app.get('/erp/formas-pagamentos', async (req, res) => { try { res.json(await betelRequest('/formas_pagamentos', { query: req.query })); } catch (err) { handleError(err, res); } });
+app.get('/erp/formas-pagamentos', async (req, res) => { try { res.json(await erpReadWithMcpFallback({ recurso: 'formas_pagamentos', path: '/formas_pagamentos', query: req.query, correlationId: req.correlationId })); } catch (err) { handleError(err, res); } });
 app.get('/erp/contas-bancarias', async (req, res) => { try { res.json(await betelRequest('/contas_bancarias', { query: req.query })); } catch (err) { handleError(err, res); } });
 
 app.get('/erp/regras-faturamento', (req, res) => {
