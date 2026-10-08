@@ -158,6 +158,9 @@ Controles obrigatorios:
 - [x] MCP oficial do HubSpot validado no contexto do conector ChatGPT, com leitura real de COMPANY;
 - [x] disponibilidade MCP HubSpot confirmada com leitura e escrita para COMPANY, CONTACT, DEAL, LINE_ITEM, PRODUCT, TASK e NOTE;
 - [x] smoke read-only HubSpot executado com sucesso em COMPANY pelo conector ChatGPT;
+- [x] leitura de CONTACT associado a COMPANY validada via filtro de associacao do MCP HubSpot;
+- [x] pipelines DEAL validados ao vivo via MCP HubSpot: `default/Vendas` e `9501279/Locacoes Servicos`; IDs de Aguardando Proposta, Proposta Enviada e Ganho conferem com `proposal-rules.json`;
+- [x] propriedades DEAL customizadas `numero_da_proposta`, `link_da_proposta` e `solucao` confirmadas no schema MCP do portal;
 - [ ] criar MCP Auth App do HubSpot e configurar o cliente remoto `https://mcp.hubspot.com` para o runtime Railway; somente depois disso migrar o trafego do `seta-comercial-api` para o MCP HubSpot em producao;
 - [ ] mapear rotas REST HubSpot existentes para equivalentes MCP oficiais;
 - [ ] migrar primeiro pesquisas de empresa, contato, negocio e associacoes para MCP HubSpot;
