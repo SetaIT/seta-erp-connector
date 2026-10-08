@@ -41,6 +41,64 @@ function hubspotMcpRuntimeConfigured() {
   return Boolean(HUBSPOT_MCP_REDIRECT_URL && HUBSPOT_MCP_CLIENT_ID && HUBSPOT_MCP_CLIENT_SECRET);
 }
 
+function parseBearerResourceMetadata(headerValue) {
+  const header = String(headerValue || '');
+  const match = header.match(/resource_metadata="([^"]+)"/i);
+  return match?.[1] || null;
+}
+
+async function hubspotMcpOAuthDiscovery() {
+  const response = await fetch(HUBSPOT_MCP_URL, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json, text/event-stream',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'oauth-discovery',
+      method: 'initialize',
+      params: {
+        protocolVersion: '2025-03-26',
+        capabilities: {},
+        clientInfo: { name: 'seta-comercial-api', version: '1.0.0' }
+      }
+    })
+  });
+  const wwwAuthenticate = response.headers.get('www-authenticate') || '';
+  const resourceMetadataUrl = parseBearerResourceMetadata(wwwAuthenticate)
+    || new URL('/.well-known/oauth-protected-resource', HUBSPOT_MCP_URL).toString();
+  let resourceMetadata = null;
+  let authorizationServerMetadata = null;
+  try {
+    const resourceResponse = await fetch(resourceMetadataUrl, { headers: { Accept: 'application/json' } });
+    if (resourceResponse.ok) resourceMetadata = await resourceResponse.json();
+  } catch {}
+  const authorizationServer = Array.isArray(resourceMetadata?.authorization_servers)
+    ? resourceMetadata.authorization_servers[0]
+    : null;
+  if (authorizationServer) {
+    const issuerUrl = String(authorizationServer).replace(/\/$/, '');
+    for (const metadataPath of ['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration']) {
+      try {
+        const metadataResponse = await fetch(`${issuerUrl}${metadataPath}`, { headers: { Accept: 'application/json' } });
+        if (metadataResponse.ok) {
+          authorizationServerMetadata = await metadataResponse.json();
+          break;
+        }
+      } catch {}
+    }
+  }
+  return {
+    mcp_status: response.status,
+    auth_required: response.status === 401 || response.status === 403,
+    www_authenticate_present: Boolean(wwwAuthenticate),
+    resource_metadata_url: resourceMetadataUrl,
+    resource_metadata: resourceMetadata,
+    authorization_server_metadata: authorizationServerMetadata
+  };
+}
+
 function getMissingEnv() {
   const missing = [];
   if (!BETEL_ACCESS_TOKEN) missing.push('BETEL_ACCESS_TOKEN');
@@ -1470,6 +1528,24 @@ app.get('/oauth/hubspot-mcp/status', (_req, res) => {
     enabled: HUBSPOT_MCP_ENABLED,
     token_exchange_enabled: false
   });
+});
+
+app.get('/oauth/hubspot-mcp/discovery', auth, async (_req, res) => {
+  try {
+    const discovery = await hubspotMcpOAuthDiscovery();
+    res.json({
+      status: 'ok',
+      integration: 'hubspot_mcp',
+      discovery
+    });
+  } catch (error) {
+    res.status(502).json({
+      status: 'error',
+      integration: 'hubspot_mcp',
+      stage: 'oauth_discovery',
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
 });
 
 app.get('/erp/hubspot/configuracao-proposta', (req, res) => {
