@@ -271,6 +271,86 @@ async function listGestaoClickMcpTools() {
   };
 }
 
+
+function parseGestaoClickMcpToolJson(result) {
+  const content = Array.isArray(result?.content) ? result.content : [];
+  const text = content.find(item => item?.type === "text")?.text;
+  if (!text) throw new Error("GestaoClick MCP tool returned no text payload");
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("GestaoClick MCP tool returned invalid JSON payload");
+  }
+}
+
+async function callGestaoClickApi({
+  recurso,
+  acao,
+  id,
+  dados = {},
+  confirmarEscrita = false,
+  sessionId = ""
+}) {
+  const session = sessionId ? { sessionId } : await openGestaoClickMcpSession();
+  const called = await gestaoclickMcpRequest({
+    jsonrpc: "2.0",
+    id: crypto.randomUUID(),
+    method: "tools/call",
+    params: {
+      name: "chamar_api",
+      arguments: {
+        recurso,
+        acao,
+        ...(id !== undefined ? { id } : {}),
+        dados,
+        confirmar_escrita: confirmarEscrita
+      }
+    }
+  }, session.sessionId);
+  const result = called.body?.result || null;
+  if (result?.isError) {
+    const error = new Error(`GestaoClick MCP tool error: ${recurso}/${acao}`);
+    error.result = result;
+    throw error;
+  }
+  return { result, parsed: parseGestaoClickMcpToolJson(result), sessionId: called.sessionId || session.sessionId };
+}
+
+async function calculateGestaoClickInstallments({
+  valorTotal,
+  formaPagamentoId,
+  numeroParcelas,
+  intervaloDias = 30,
+  dataPrimeiraParcela,
+  sessionId = ""
+}) {
+  const dados = {
+    valor_total: Number(valorTotal),
+    forma_pagamento_id: Number(formaPagamentoId),
+    numero_parcelas: Number(numeroParcelas),
+    intervalo_dias: Number(intervaloDias)
+  };
+  if (dataPrimeiraParcela) dados.data_primeira_parcela = String(dataPrimeiraParcela);
+
+  const called = await callGestaoClickApi({
+    recurso: "orcamentos",
+    acao: "gerar_parcelas",
+    dados,
+    confirmarEscrita: false,
+    sessionId
+  });
+  const upstreamStatus = Number(called.parsed?.http_status || 200);
+  if (upstreamStatus >= 400) {
+    const error = new Error(`GestaoClick installment calculator HTTP ${upstreamStatus}`);
+    error.data = called.parsed;
+    throw error;
+  }
+  return {
+    response: called.parsed?.resposta ?? called.parsed,
+    sessionId: called.sessionId
+  };
+}
+
 function safeReadOnlyTool(tool) {
   const name = String(tool?.name || "").toLowerCase();
   const description = String(tool?.description || "").toLowerCase();
@@ -371,6 +451,44 @@ async function runGestaoClickReadOnlySmoke() {
   }
   console.log("gestaoclick-mcp-core-read-matrix", JSON.stringify(matrix));
 
+  let installmentSmoke = { status: "skipped", reason: "payment_method_unavailable" };
+  try {
+    const paymentMethods = await callGestaoClickApi({
+      recurso: "formas_pagamentos",
+      acao: "listar",
+      dados: { limite: 1 },
+      confirmarEscrita: false,
+      sessionId: session.sessionId
+    });
+    const paymentPayload = paymentMethods.parsed?.resposta ?? paymentMethods.parsed;
+    const paymentRows = Array.isArray(paymentPayload?.data) ? paymentPayload.data : [];
+    const firstPayment = paymentRows[0]?.FormasPagamento || paymentRows[0]?.forma_pagamento || paymentRows[0] || {};
+    const paymentMethodId = firstPayment?.id;
+    if (paymentMethodId) {
+      const calculated = await calculateGestaoClickInstallments({
+        valorTotal: 100,
+        formaPagamentoId: paymentMethodId,
+        numeroParcelas: 3,
+        intervaloDias: 30,
+        dataPrimeiraParcela: "2026-10-15",
+        sessionId: session.sessionId
+      });
+      const rows = Array.isArray(calculated.response?.data) ? calculated.response.data : [];
+      installmentSmoke = {
+        status: "ok",
+        paymentMethodId: String(paymentMethodId),
+        installments: rows.length,
+        total: rows.reduce((sum, row) => sum + Number(row?.valor || row?.pagamento?.valor || 0), 0)
+      };
+    }
+  } catch (error) {
+    installmentSmoke = {
+      status: "error",
+      message: error instanceof Error ? error.message : String(error)
+    };
+  }
+  console.log("gestaoclick-mcp-installment-smoke", JSON.stringify(installmentSmoke));
+
   const describeTargets = ["clientes", "produtos", "orcamentos", "recebimentos"];
   const descriptions = [];
   for (const recurso of describeTargets) {
@@ -450,6 +568,7 @@ async function runGestaoClickReadOnlySmoke() {
   return {
     ...result,
     coreReadMatrix: matrix,
+    installmentSmoke,
     resourceDescriptions: descriptions,
     actionDescriptions
   };
@@ -676,6 +795,54 @@ app.post("/mcp/gestaoclick/read", requireMcpProxyAuth, async (req, res) => {
     res.json({ status: "ok", recurso, acao, result: called.body?.result || null });
   } catch (error) {
     res.status(502).json({ status: "error", message: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.post("/mcp/gestaoclick/calculate-installments", requireMcpProxyAuth, async (req, res) => {
+  const correlationId = String(req.headers["x-correlation-id"] || crypto.randomUUID());
+  const valorTotal = Number(req.body?.valor_total);
+  const formaPagamentoId = Number(req.body?.forma_pagamento_id);
+  const numeroParcelas = Number(req.body?.numero_parcelas);
+  const intervaloDias = req.body?.intervalo_dias === undefined ? 30 : Number(req.body.intervalo_dias);
+  const dataPrimeiraParcela = req.body?.data_primeira_parcela ? String(req.body.data_primeira_parcela) : undefined;
+
+  if (!Number.isFinite(valorTotal) || valorTotal < 0) {
+    return res.status(400).json({ status: "error", correlationId, message: "valor_total must be a non-negative number" });
+  }
+  if (!Number.isInteger(formaPagamentoId) || formaPagamentoId <= 0) {
+    return res.status(400).json({ status: "error", correlationId, message: "forma_pagamento_id must be a positive integer" });
+  }
+  if (!Number.isInteger(numeroParcelas) || numeroParcelas <= 0 || numeroParcelas > 120) {
+    return res.status(400).json({ status: "error", correlationId, message: "numero_parcelas must be between 1 and 120" });
+  }
+  if (!Number.isInteger(intervaloDias) || intervaloDias < 0 || intervaloDias > 3650) {
+    return res.status(400).json({ status: "error", correlationId, message: "intervalo_dias must be between 0 and 3650" });
+  }
+  if (dataPrimeiraParcela && !/^\d{4}-\d{2}-\d{2}$/.test(dataPrimeiraParcela)) {
+    return res.status(400).json({ status: "error", correlationId, message: "data_primeira_parcela must use YYYY-MM-DD" });
+  }
+
+  try {
+    const calculated = await calculateGestaoClickInstallments({
+      valorTotal,
+      formaPagamentoId,
+      numeroParcelas,
+      intervaloDias,
+      dataPrimeiraParcela
+    });
+    return res.json({
+      status: "ok",
+      correlationId,
+      source: "gestaoclick_mcp",
+      operation: "orcamentos/gerar_parcelas",
+      result: calculated.response
+    });
+  } catch (error) {
+    return res.status(502).json({
+      status: "error",
+      correlationId,
+      message: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 
