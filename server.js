@@ -31,6 +31,15 @@ const ERP_SUPERVISOR_BASE_URL = String(process.env.ERP_SUPERVISOR_BASE_URL || ''
 const ERP_SUPERVISOR_TOKEN = String(process.env.ERP_SUPERVISOR_TOKEN || '').trim();
 const GESTAOCLICK_MCP_READS_ENABLED = String(process.env.GESTAOCLICK_MCP_READS_ENABLED || 'false').toLowerCase() === 'true';
 const GESTAOCLICK_MCP_WRITES_ENABLED = String(process.env.GESTAOCLICK_MCP_WRITES_ENABLED || 'false').toLowerCase() === 'true';
+const HUBSPOT_MCP_URL = String(process.env.HUBSPOT_MCP_URL || 'https://mcp.hubspot.com').replace(/\/$/, '');
+const HUBSPOT_MCP_REDIRECT_URL = String(process.env.HUBSPOT_MCP_REDIRECT_URL || '').trim();
+const HUBSPOT_MCP_CLIENT_ID = String(process.env.HUBSPOT_MCP_CLIENT_ID || '').trim();
+const HUBSPOT_MCP_CLIENT_SECRET = String(process.env.HUBSPOT_MCP_CLIENT_SECRET || '').trim();
+const HUBSPOT_MCP_ENABLED = String(process.env.HUBSPOT_MCP_ENABLED || 'false').toLowerCase() === 'true';
+
+function hubspotMcpRuntimeConfigured() {
+  return Boolean(HUBSPOT_MCP_REDIRECT_URL && HUBSPOT_MCP_CLIENT_ID && HUBSPOT_MCP_CLIENT_SECRET);
+}
 
 function getMissingEnv() {
   const missing = [];
@@ -1449,12 +1458,16 @@ app.get('/oauth/hubspot-mcp/callback', (req, res) => {
 });
 
 app.get('/oauth/hubspot-mcp/status', (_req, res) => {
+  const configured = hubspotMcpRuntimeConfigured();
   res.json({
-    status: 'ready_for_connector_setup',
+    status: configured ? 'credentials_configured' : 'ready_for_connector_setup',
     integration: 'hubspot_mcp',
-    mcp_url: 'https://mcp.hubspot.com',
+    mcp_url: HUBSPOT_MCP_URL,
     redirect_path: '/oauth/hubspot-mcp/callback',
+    redirect_url: HUBSPOT_MCP_REDIRECT_URL || null,
     oauth_pkce_required: true,
+    connector_credentials_configured: configured,
+    enabled: HUBSPOT_MCP_ENABLED,
     token_exchange_enabled: false
   });
 });
