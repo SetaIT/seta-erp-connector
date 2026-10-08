@@ -114,6 +114,11 @@ const proposalRules = readJson('proposal-rules.json');
 readJson('billing-rules.json');
 
 if (proposalRules?.types) {
+  const requiredIntroductionPlaceholders = {
+    locacao: ['{meses}', '{solucao}', '{itens_resumo}', '{valor_formatado}', '{prazo_entrega}', '{frete_formatado}', '{sla}'],
+    compra: ['{solucao}', '{itens_resumo}', '{valor_formatado}'],
+    spareparts: ['{meses}', '{solucao}', '{itens_resumo}', '{valor_formatado}', '{sla}']
+  };
   for (const [typeKey, rule] of Object.entries(proposalRules.types)) {
     const patterns = [
       rule.introduction_pattern,
@@ -121,10 +126,18 @@ if (proposalRules?.types) {
       rule.introduction_pattern_usd
     ].filter(Boolean);
     for (const pattern of patterns) {
-      assert(pattern.includes('{solucao}'), `proposal-rules.json: ${typeKey} deve incluir {solucao} na introducao`);
-      assert(pattern.includes('{itens_resumo}'), `proposal-rules.json: ${typeKey} deve incluir {itens_resumo} na introducao`);
+      for (const placeholder of requiredIntroductionPlaceholders[typeKey] || ['{solucao}', '{itens_resumo}']) {
+        assert(
+          pattern.includes(placeholder),
+          `proposal-rules.json: ${typeKey} deve incluir ${placeholder} na introducao`
+        );
+      }
     }
   }
+  assert(
+    String(proposalRules.introduction?.fixed_footer || '').includes('requisitos e necessidades informados pelo cliente'),
+    'proposal-rules.json: rodape fixo deve preservar o contexto comercial do cliente'
+  );
 }
 
 try {
