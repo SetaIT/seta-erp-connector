@@ -560,10 +560,13 @@ async function runGestaoClickReadOnlySmoke() {
       };
     }
   } catch (error) {
+    const responseShape = error?.data?.responseShape || null;
+    const expectedWriteGate = responseShape?.erro === "ESCRITA_BLOQUEADA";
     installmentSmoke = {
-      status: "error",
+      status: expectedWriteGate ? "blocked_expected" : "error",
       message: error instanceof Error ? error.message : String(error),
-      responseShape: error?.data?.responseShape || null
+      reason: expectedWriteGate ? "official_mcp_requires_confirmar_escrita_for_post" : null,
+      responseShape
     };
   }
   console.log("gestaoclick-mcp-installment-smoke", JSON.stringify(installmentSmoke));
@@ -879,6 +882,14 @@ app.post("/mcp/gestaoclick/read", requireMcpProxyAuth, async (req, res) => {
 
 app.post("/mcp/gestaoclick/calculate-installments", requireMcpProxyAuth, async (req, res) => {
   const correlationId = String(req.headers["x-correlation-id"] || crypto.randomUUID());
+  if (GESTAOCLICK_MCP_READ_ONLY) {
+    return res.status(409).json({
+      status: "blocked",
+      correlationId,
+      reason: "mcp_read_only",
+      message: "The official MCP classifies orcamentos/gerar_parcelas as POST/write and requires controlled write confirmation."
+    });
+  }
   const valorTotal = Number(req.body?.valor_total);
   const formaPagamentoId = Number(req.body?.forma_pagamento_id);
   const numeroParcelas = Number(req.body?.numero_parcelas);
