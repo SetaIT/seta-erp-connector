@@ -110,7 +110,31 @@ for (const file of ['gateway.js','server.js','commercial-write-reconciliation.js
   catch (err) { fail(`${file}: falha de sintaxe JavaScript - ${String(err.stderr || err.message).trim()}`); }
 }
 
-for (const file of ['proposal-rules.json','billing-rules.json']) readJson(file);
+const proposalRules = readJson('proposal-rules.json');
+readJson('billing-rules.json');
+
+if (proposalRules?.types) {
+  for (const [typeKey, rule] of Object.entries(proposalRules.types)) {
+    const patterns = [
+      rule.introduction_pattern,
+      rule.introduction_pattern_brl,
+      rule.introduction_pattern_usd
+    ].filter(Boolean);
+    for (const pattern of patterns) {
+      assert(pattern.includes('{solucao}'), `proposal-rules.json: ${typeKey} deve incluir {solucao} na introducao`);
+      assert(pattern.includes('{itens_resumo}'), `proposal-rules.json: ${typeKey} deve incluir {itens_resumo} na introducao`);
+    }
+  }
+}
+
+try {
+  const serverSource = fs.readFileSync('server.js', 'utf8');
+  assert(serverSource.includes(".replaceAll('{solucao}', solution)"), 'server.js deve materializar {solucao} na introducao');
+  assert(serverSource.includes(".replaceAll('{itens_resumo}', itemSummary)"), 'server.js deve materializar {itens_resumo} na introducao');
+  assert(serverSource.includes('delete changes.valor_frete_informativo'), 'server.js deve manter frete informativo fora do campo formal do ERP');
+} catch (err) {
+  fail(`server.js: nao foi possivel validar regras de introducao - ${err.message}`);
+}
 
 for (const warning of warnings) console.log(`WARN: ${warning}`);
 if (failures.length) {

@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "currency_default": "BRL",
   "deal_name_pattern": "{numero_proposta} - {empresa} - {solucao}",
   "introduction": {
@@ -18,7 +18,7 @@
       "requires_freight": true,
       "requires_sla": true,
       "deal_amount_rule": "monthly_value_times_months",
-      "introduction_pattern": "Proposta de Locação – {meses} Meses\n\nValor mensal: {valor_formatado}\nPrazo estimado de entrega: {prazo_entrega}\nFrete: {frete_formatado}\nSLA: {sla}",
+      "introduction_pattern": "Proposta de Locação – {meses} Meses\n\nSolução: {solucao}\n{itens_resumo}\n\nValor mensal: {valor_formatado}\nPrazo estimado de entrega: {prazo_entrega}\nFrete: {frete_formatado}\nSLA: {sla}",
       "payment_terms": {
         "condicao_pagamento": "a_vista",
         "numero_parcelas": 1,
@@ -35,8 +35,8 @@
       "requires_months": false,
       "deal_amount_rule": "proposal_total",
       "currency_required_when_usd": true,
-      "introduction_pattern_brl": "Proposta de Compra\n\nValor total: {valor_formatado}\n\nPara cotações expressas em dólar, os valores serão convertidos para BRL (Reais) utilizando a PTAX vigente na data do faturamento.",
-      "introduction_pattern_usd": "Proposta de Compra – USD\n\nValor total: {valor_formatado}\n\nPara cotações expressas em dólar, os valores serão convertidos para BRL (Reais) utilizando a PTAX vigente na data do faturamento.",
+      "introduction_pattern_brl": "Proposta de Compra\n\nSolução: {solucao}\n{itens_resumo}\n\nValor total: {valor_formatado}\n\nPara cotações expressas em dólar, os valores serão convertidos para BRL (Reais) utilizando a PTAX vigente na data do faturamento.",
+      "introduction_pattern_usd": "Proposta de Compra – USD\n\nSolução: {solucao}\n{itens_resumo}\n\nValor total: {valor_formatado}\n\nPara cotações expressas em dólar, os valores serão convertidos para BRL (Reais) utilizando a PTAX vigente na data do faturamento.",
       "hubspot_pipeline": "default",
       "hubspot_stage_aguardando_proposta": "20205433",
       "hubspot_stage_proposta_enviada": "qualifiedtobuy",
@@ -47,7 +47,7 @@
       "requires_months": true,
       "requires_sla": true,
       "deal_amount_rule": "explicit_value_until_confirmed",
-      "introduction_pattern": "Proposta de SpareParts – {meses} Meses\n\nValor mensal: {valor_formatado}\nSLA: {sla}\n\nObservação: a abertura do primeiro chamado estará sujeita a uma carência de 30 dias contados a partir do início da vigência contratual.",
+      "introduction_pattern": "Proposta de SpareParts – {meses} Meses\n\nSolução: {solucao}\n{itens_resumo}\n\nValor mensal: {valor_formatado}\nSLA: {sla}\n\nObservação: a abertura do primeiro chamado estará sujeita a uma carência de 30 dias contados a partir do início da vigência contratual.",
       "payment_terms": {
         "condicao_pagamento": "a_vista",
         "numero_parcelas": 1,

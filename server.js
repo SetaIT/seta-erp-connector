@@ -867,6 +867,32 @@ function verifyProposalEdit(current, changes) {
   return mismatches;
 }
 
+function summarizeProposalItems(products = [], services = []) {
+  const rawItems = [
+    ...(Array.isArray(products) ? products : []),
+    ...(Array.isArray(services) ? services : [])
+  ];
+  const summaries = rawItems.map((entry) => {
+    const item = entry?.produto || entry?.servico || entry || {};
+    const name = String(
+      item.nome_produto
+      ?? item.nome_servico
+      ?? item.nome
+      ?? item.descricao
+      ?? item.detalhes
+      ?? ''
+    ).trim();
+    if (!name) return null;
+    const quantity = String(item.quantidade ?? item.quantity ?? '1').trim();
+    return quantity && quantity !== '1' ? `${quantity}x ${name}` : name;
+  }).filter(Boolean);
+
+  if (!summaries.length) return '';
+  const visible = summaries.slice(0, 8);
+  const suffix = summaries.length > visible.length ? ` (+${summaries.length - visible.length} itens)` : '';
+  return `Itens principais: ${visible.join('; ')}${suffix}`;
+}
+
 function buildProposalIntroduction(body) {
   const { rules, typeKey, typeRule } = getProposalTypeRule(body.tipo_proposta);
   const solution = String(body.solucao || '').trim();
@@ -910,12 +936,16 @@ function buildProposalIntroduction(body) {
     freightFormatted = formatProposalMoney(parseMoney(informationalFreight, 'valor_frete_informativo'), currency);
   }
 
+  const itemSummary = summarizeProposalItems(body.produtos, body.servicos);
   const variableBlock = String(pattern || typeRule.label)
     .replaceAll('{meses}', String(months ?? ''))
+    .replaceAll('{solucao}', solution)
+    .replaceAll('{itens_resumo}', itemSummary)
     .replaceAll('{valor_formatado}', formattedValue)
     .replaceAll('{prazo_entrega}', deliveryTerm)
     .replaceAll('{frete_formatado}', freightFormatted)
     .replaceAll('{sla}', sla)
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 
   const exchangeRateNote = 'Para cotações expressas em dólar, os valores serão convertidos para BRL (Reais) utilizando a PTAX vigente na data do faturamento.';
@@ -953,6 +983,7 @@ function buildProposalIntroduction(body) {
       tipo_proposta: typeKey,
       tipo_proposta_label: typeRule.label,
       solucao: solution,
+      itens_resumo: itemSummary || null,
       meses: months,
       moeda: currency,
       valor_calculado: Number(total.toFixed(2)),

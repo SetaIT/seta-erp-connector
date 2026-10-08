@@ -87,7 +87,8 @@ Tarefa principal atual: Issue #5 - CRUD de propostas somente por numero comercia
 - [x] rota publica de PUT/edicao por numero com resolucao interna do ID;
 - [x] OpenAPI sem exigir ID interno no fluxo recomendado;
 - [x] regras de pagamento Locacao/SpareParts implementadas e testadas (a vista, 1 parcela, vencimento em 30 dias, parcela reconciliada com o total da proposta);
-- [ ] introducao comercial sugerida automaticamente a partir do tipo da proposta, solucao, prazo, frete, SLA, itens e contexto do cliente; deve permanecer editavel antes da gravacao e nunca preencher o campo formal de frete do ERP;
+- [x] introducao comercial sugerida automaticamente a partir do tipo da proposta, solucao, prazo, frete, SLA e resumo dos itens; permanece editavel antes da gravacao e nunca preenche o campo formal de frete do ERP;
+- [ ] enriquecer a introducao com contexto de cliente/oportunidade quando esse contexto estiver disponivel de forma confiavel via HubSpot MCP;
 - [ ] fluxo Deal -> email -> Proposta Enviada -> follow-up -> Ganho/Perdido;
 - [ ] testes de regressao das regras comerciais (regressao de pagamento Locacao/SpareParts adicionada; ampliar para introducao, frete, itens e ciclo completo).
 
