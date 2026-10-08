@@ -224,7 +224,9 @@ function authorized(req) {
 }
 
 function configured() {
-  return Boolean(BETEL_ACCESS_TOKEN && BETEL_SECRET_ACCESS_TOKEN);
+  const mcpConfigured = Boolean(ERP_SUPERVISOR_BASE_URL && ERP_SUPERVISOR_TOKEN);
+  const betelConfigured = Boolean(BETEL_ACCESS_TOKEN && BETEL_SECRET_ACCESS_TOKEN);
+  return GESTAOCLICK_MCP_WRITES_ENABLED ? mcpConfigured : betelConfigured;
 }
 
 function validateNumber(numero) {
@@ -493,9 +495,42 @@ async function deleteByNumberHandler(req, res) {
   };
 
   let deleteResponse;
-  try { deleteResponse = await betel(`/orcamentos/${encodeURIComponent(resolved.id)}`, { method: 'DELETE' }); }
-  catch (err) { return res.status(200).json({ status: 'error', stage: 'betel_delete_transport', delete_attempted: true, delete_succeeded: false, numero, proposal_before_delete: snapshot, message: err.message }); }
-  if (!deleteResponse.ok) return res.status(200).json({ status: 'error', stage: 'betel_delete', delete_attempted: true, delete_succeeded: false, numero, proposal_before_delete: snapshot, betel_http_status: deleteResponse.status, betel_details: compactDetails(deleteResponse.data) });
+  const correlationId = String(req.headers['x-correlation-id'] || '').trim() || undefined;
+  try {
+    deleteResponse = GESTAOCLICK_MCP_WRITES_ENABLED
+      ? await mcpWrite({
+          recurso: 'orcamentos',
+          acao: 'deletar',
+          id: resolved.id,
+          dados: {},
+          correlationId
+        })
+      : await betel(`/orcamentos/${encodeURIComponent(resolved.id)}`, { method: 'DELETE' });
+  } catch (err) {
+    return res.status(200).json({
+      status: GESTAOCLICK_MCP_WRITES_ENABLED ? 'write_outcome_unknown' : 'error',
+      stage: GESTAOCLICK_MCP_WRITES_ENABLED ? 'mcp_delete_transport' : 'betel_delete_transport',
+      delete_attempted: true,
+      delete_succeeded: false,
+      numero,
+      proposal_before_delete: snapshot,
+      write_source: GESTAOCLICK_MCP_WRITES_ENABLED ? 'gestaoclick_mcp' : 'betel',
+      retry_safe: false,
+      message: err.message
+    });
+  }
+  if (!deleteResponse.ok) return res.status(200).json({
+    status: 'error',
+    stage: GESTAOCLICK_MCP_WRITES_ENABLED ? 'mcp_delete' : 'betel_delete',
+    delete_attempted: true,
+    delete_succeeded: false,
+    numero,
+    proposal_before_delete: snapshot,
+    write_source: deleteResponse.source || (GESTAOCLICK_MCP_WRITES_ENABLED ? 'gestaoclick_mcp' : 'betel'),
+    upstream_http_status: deleteResponse.status,
+    upstream_details: compactDetails(deleteResponse.data),
+    retry_safe: false
+  });
 
   let verification;
   try { verification = await resolveByNumber(numero); }
@@ -504,7 +539,22 @@ async function deleteByNumberHandler(req, res) {
   if (verification.ok) return res.status(200).json({ status: 'success_with_verification_warning', stage: 'verification', delete_attempted: true, delete_succeeded: true, verification_succeeded: false, proposal_absent_after_delete: false, numero, proposal_before_delete: snapshot, message: 'Betel confirmou a exclusao, mas a proposta ainda foi localizada pelo numero. Nao repetir DELETE sem nova analise.' });
   if (!verification.notFound) return res.status(200).json({ status: 'success_unverified', stage: verification.stage || 'verification', delete_attempted: true, delete_succeeded: true, verification_succeeded: false, numero, proposal_before_delete: snapshot, message: verification.message ?? 'A verificacao posterior falhou; nao repetir DELETE automaticamente.' });
 
-  return res.status(200).json({ status: 'success', stage: 'completed', delete_attempted: true, delete_succeeded: true, verification_succeeded: true, proposal_absent_after_delete: true, numero, proposal_before_delete: snapshot, connector_write_mode: 'direct_betel_number_resolution' });
+  return res.status(200).json({
+    status: 'success',
+    stage: 'completed',
+    delete_attempted: true,
+    delete_succeeded: true,
+    verification_succeeded: true,
+    proposal_absent_after_delete: true,
+    numero,
+    proposal_before_delete: snapshot,
+    connector_write_mode: GESTAOCLICK_MCP_WRITES_ENABLED ? 'mcp_delete_with_post_write_verification' : 'direct_betel_number_resolution',
+    write_source: deleteResponse.source || (GESTAOCLICK_MCP_WRITES_ENABLED ? 'gestaoclick_mcp' : 'betel'),
+    read_sources: {
+      before_list: resolved.listSource || 'betel',
+      before_detail: resolved.detailSource || 'betel'
+    }
+  });
 }
 
 express.application.use = function patchedNumberWriteUse(...args) {
