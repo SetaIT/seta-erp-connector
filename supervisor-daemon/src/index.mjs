@@ -316,6 +316,26 @@ async function callGestaoClickApi({
   return { result, parsed: parseGestaoClickMcpToolJson(result), sessionId: called.sessionId || session.sessionId };
 }
 
+function unwrapGestaoClickApiEnvelope(parsed) {
+  let value = parsed;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) break;
+    if (value.resposta !== undefined) { value = value.resposta; continue; }
+    if (value.response !== undefined) { value = value.response; continue; }
+    break;
+  }
+  return value;
+}
+
+function extractInstallmentRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.dados)) return payload.dados;
+  if (Array.isArray(payload.parcelas)) return payload.parcelas;
+  return [];
+}
+
 async function calculateGestaoClickInstallments({
   valorTotal,
   formaPagamentoId,
@@ -324,10 +344,12 @@ async function calculateGestaoClickInstallments({
   dataPrimeiraParcela,
   sessionId = ""
 }) {
+  const expectedCount = Number(numeroParcelas);
+  const expectedTotal = Number(valorTotal);
   const dados = {
-    valor_total: Number(valorTotal),
+    valor_total: expectedTotal,
     forma_pagamento_id: Number(formaPagamentoId),
-    numero_parcelas: Number(numeroParcelas),
+    numero_parcelas: expectedCount,
     intervalo_dias: Number(intervaloDias)
   };
   if (dataPrimeiraParcela) dados.data_primeira_parcela = String(dataPrimeiraParcela);
@@ -345,8 +367,37 @@ async function calculateGestaoClickInstallments({
     error.data = called.parsed;
     throw error;
   }
+
+  const response = unwrapGestaoClickApiEnvelope(called.parsed);
+  if (response?.status && String(response.status).toLowerCase() === "error") {
+    const error = new Error("GestaoClick installment calculator returned error status");
+    error.data = response;
+    throw error;
+  }
+
+  const rows = extractInstallmentRows(response);
+  const total = rows.reduce((sum, row) => {
+    const item = row?.pagamento && typeof row.pagamento === "object" ? row.pagamento : row;
+    return sum + Number(item?.valor || 0);
+  }, 0);
+  const roundedTotal = Number(total.toFixed(2));
+  const roundedExpected = Number(expectedTotal.toFixed(2));
+
+  if (rows.length !== expectedCount) {
+    const error = new Error(`GestaoClick installment calculator returned ${rows.length} rows; expected ${expectedCount}`);
+    error.data = { response, rows: rows.length, expectedCount };
+    throw error;
+  }
+  if (roundedTotal !== roundedExpected) {
+    const error = new Error(`GestaoClick installment total ${roundedTotal} differs from expected ${roundedExpected}`);
+    error.data = { response, roundedTotal, roundedExpected };
+    throw error;
+  }
+
   return {
-    response: called.parsed?.resposta ?? called.parsed,
+    response,
+    rows,
+    total: roundedTotal,
     sessionId: called.sessionId
   };
 }
@@ -473,12 +524,11 @@ async function runGestaoClickReadOnlySmoke() {
         dataPrimeiraParcela: "2026-10-15",
         sessionId: session.sessionId
       });
-      const rows = Array.isArray(calculated.response?.data) ? calculated.response.data : [];
       installmentSmoke = {
         status: "ok",
         paymentMethodId: String(paymentMethodId),
-        installments: rows.length,
-        total: rows.reduce((sum, row) => sum + Number(row?.valor || row?.pagamento?.valor || 0), 0)
+        installments: calculated.rows.length,
+        total: calculated.total
       };
     }
   } catch (error) {
