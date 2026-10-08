@@ -409,6 +409,8 @@ async function runGestaoClickReadOnlySmoke() {
     { recurso: "produtos", acao: "cadastrar" },
     { recurso: "orcamentos", acao: "cadastrar" },
     { recurso: "orcamentos", acao: "editar" },
+    { recurso: "orcamentos", acao: "deletar" },
+    { recurso: "orcamentos", acao: "gerar_parcelas" },
     { recurso: "recebimentos", acao: "cadastrar" }
   ];
   const actionDescriptions = [];
