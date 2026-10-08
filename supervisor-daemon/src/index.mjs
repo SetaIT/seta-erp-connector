@@ -347,7 +347,9 @@ function safeResponseShape(value) {
       status: value.status ?? null,
       code: value.code ?? null,
       dataType: Array.isArray(value.data) ? "array" : typeof value.data,
-      dataLength: Array.isArray(value.data) ? value.data.length : null
+      dataLength: Array.isArray(value.data) ? value.data.length : null,
+      erro: typeof value.erro === "string" ? value.erro.slice(0, 300) : null,
+      detalhe: typeof value.detalhe === "string" ? value.detalhe.slice(0, 500) : null
     };
   }
   return { type: typeof value, preview: String(value ?? "").slice(0, 200) };
