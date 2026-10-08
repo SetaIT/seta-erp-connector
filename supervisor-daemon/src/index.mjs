@@ -318,13 +318,39 @@ async function callGestaoClickApi({
 
 function unwrapGestaoClickApiEnvelope(parsed) {
   let value = parsed;
-  for (let depth = 0; depth < 4; depth += 1) {
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) break;
+      try {
+        value = JSON.parse(trimmed);
+        continue;
+      } catch {
+        break;
+      }
+    }
     if (!value || typeof value !== "object" || Array.isArray(value)) break;
     if (value.resposta !== undefined) { value = value.resposta; continue; }
     if (value.response !== undefined) { value = value.response; continue; }
+    if (value.result !== undefined && value.data === undefined) { value = value.result; continue; }
     break;
   }
   return value;
+}
+
+function safeResponseShape(value) {
+  if (Array.isArray(value)) return { type: "array", length: value.length };
+  if (value && typeof value === "object") {
+    return {
+      type: "object",
+      keys: Object.keys(value).slice(0, 20),
+      status: value.status ?? null,
+      code: value.code ?? null,
+      dataType: Array.isArray(value.data) ? "array" : typeof value.data,
+      dataLength: Array.isArray(value.data) ? value.data.length : null
+    };
+  }
+  return { type: typeof value, preview: String(value ?? "").slice(0, 200) };
 }
 
 function extractInstallmentRows(payload) {
@@ -385,7 +411,7 @@ async function calculateGestaoClickInstallments({
 
   if (rows.length !== expectedCount) {
     const error = new Error(`GestaoClick installment calculator returned ${rows.length} rows; expected ${expectedCount}`);
-    error.data = { response, rows: rows.length, expectedCount };
+    error.data = { responseShape: safeResponseShape(response), rows: rows.length, expectedCount };
     throw error;
   }
   if (roundedTotal !== roundedExpected) {
@@ -534,7 +560,8 @@ async function runGestaoClickReadOnlySmoke() {
   } catch (error) {
     installmentSmoke = {
       status: "error",
-      message: error instanceof Error ? error.message : String(error)
+      message: error instanceof Error ? error.message : String(error),
+      responseShape: error?.data?.responseShape || null
     };
   }
   console.log("gestaoclick-mcp-installment-smoke", JSON.stringify(installmentSmoke));
