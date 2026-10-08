@@ -1859,4 +1859,25 @@ if (GESTAOCLICK_MCP_READS_ENABLED) {
     });
 }
 
+hubspotMcpOAuthDiscovery()
+  .then(discovery => {
+    const metadata = discovery.authorization_server_metadata || {};
+    console.log(JSON.stringify({
+      event: 'hubspot_mcp_oauth_discovery',
+      status: 'ok',
+      auth_required: discovery.auth_required,
+      resource_metadata_url: discovery.resource_metadata_url,
+      authorization_endpoint: metadata.authorization_endpoint || null,
+      token_endpoint: metadata.token_endpoint || null,
+      issuer: metadata.issuer || null
+    }));
+  })
+  .catch(error => {
+    console.error(JSON.stringify({
+      event: 'hubspot_mcp_oauth_discovery',
+      status: 'error',
+      message: error?.message || String(error)
+    }));
+  });
+
 app.listen(PORT, '0.0.0.0', () => console.log(`Seta ERP Connector listening on 0.0.0.0:${PORT}`));
