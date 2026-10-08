@@ -82,7 +82,7 @@ export function gestaoClickWritePolicy({
   const normalizedAction = String(acao || "").trim().toLowerCase();
   const allowed = {
     clientes: new Set(["cadastrar", "editar"]),
-    orcamentos: new Set(["cadastrar", "editar"]),
+    orcamentos: new Set(["cadastrar", "editar", "deletar"]),
     produtos: new Set(["cadastrar"]),
     recebimentos: new Set(["cadastrar"])
   };
@@ -103,6 +103,7 @@ export function gestaoClickWriteContract({ recurso, acao, dados = {}, id } = {})
     "produtos:cadastrar": ["nome", "codigo_interno", "valor_custo"],
     "orcamentos:cadastrar": ["tipo", "codigo", "cliente_id", "situacao_id", "data"],
     "orcamentos:editar": ["tipo", "codigo", "cliente_id", "situacao_id", "data"],
+    "orcamentos:deletar": [],
     "recebimentos:cadastrar": ["descricao", "data_vencimento", "plano_contas_id", "forma_pagamento_id", "conta_bancaria_id", "valor", "data_competencia"]
   };
   const key = `${normalizedResource}:${normalizedAction}`;
@@ -122,7 +123,7 @@ export function gestaoClickWriteContract({ recurso, acao, dados = {}, id } = {})
     const value = payload[field];
     return value === undefined || value === null || (typeof value === "string" && value.trim() === "");
   });
-  if (normalizedAction === "editar" && (id === undefined || id === null || String(id).trim() === "")) {
+  if (["editar", "deletar"].includes(normalizedAction) && (id === undefined || id === null || String(id).trim() === "")) {
     missing.unshift("id");
   }
   return {
