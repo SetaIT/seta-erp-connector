@@ -162,7 +162,14 @@ Controles obrigatorios:
 - [x] pipelines DEAL validados ao vivo via MCP HubSpot: `default/Vendas` e `9501279/Locacoes Servicos`; IDs de Aguardando Proposta, Proposta Enviada e Ganho conferem com `proposal-rules.json`;
 - [x] propriedades DEAL customizadas `numero_da_proposta`, `link_da_proposta` e `solucao` confirmadas no schema MCP do portal;
 - [ ] criar MCP Auth App do HubSpot e configurar o cliente remoto `https://mcp.hubspot.com` para o runtime Railway; somente depois disso migrar o trafego do `seta-comercial-api` para o MCP HubSpot em producao;
-- [ ] mapear rotas REST HubSpot existentes para equivalentes MCP oficiais;
+- [x] mapear rotas REST HubSpot existentes para equivalentes MCP oficiais:
+  - `GET /erp/hubspot/empresas` -> `search_crm_objects` em COMPANY;
+  - `GET /erp/hubspot/empresas/{id}/contatos` -> `search_crm_objects` em CONTACT com filtro de associacao COMPANY;
+  - `GET /erp/hubspot/contatos` -> `search_crm_objects` em CONTACT;
+  - `GET /erp/hubspot/negocios` -> `search_crm_objects` em DEAL usando `numero_da_proposta`;
+  - criacao/edicao de empresa, contato e negocio -> `manage_crm_objects`;
+  - associacoes empresa-contato-deal -> `manage_crm_objects` com associations;
+  - notas/tarefas -> `manage_crm_objects` em NOTE/TASK;
 - [ ] migrar primeiro pesquisas de empresa, contato, negocio e associacoes para MCP HubSpot;
 - [ ] migrar criacao/edicao de COMPANY, CONTACT e DEAL para MCP HubSpot respeitando confirmacao explicita exigida pelo conector oficial;
 - [ ] migrar associacoes empresa-contato-deal e registro de atividades/notas;
