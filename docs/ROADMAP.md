@@ -78,10 +78,10 @@ O MCP oficial do GestaoClick e uma integracao direta do Supervisor Comercial. O 
 - [ ] classificacao automatica aprofundada de incidentes Railway/upstream;
 - [ ] rollback documentado e validado.
 
-## Fase 4 - Estabilizacao do fluxo comercial [INICIADA]
+## Fase 4 - Estabilizacao do fluxo comercial [FUNCIONAL / EM EVOLUCAO]
 Tarefa principal atual: Issue #5 - CRUD de propostas somente por numero comercial.
 
-- [ ] CRUD de proposta totalmente pelo numero comercial para o usuario;
+- [x] CRUD de proposta totalmente orientado ao numero comercial para o usuario: criacao recebe `codigo`; consulta, edicao e exclusao usam `/erp/orcamentos/numero/{numero}`; ID interno nao e exposto como requisito no OpenAPI publico;
 - [x] confirmacao segura para edicao/exclusao;
 - [x] rota publica de DELETE por numero com resolucao interna do ID;
 - [x] rota publica de PUT/edicao por numero com resolucao interna do ID;
