@@ -154,6 +154,7 @@ Controles obrigatorios:
 - [x] `describe_recurso` validado em producao para clientes, produtos, orcamentos e recebimentos;
 - [x] contratos detalhados das acoes de escrita oficiais (`cadastrar`/`editar`) inventariados para clientes, produtos, orcamentos e recebimentos; campos obrigatorios agora sao validados antes de qualquer chamada de escrita;
 - [x] endpoint de `write-preview` sem efeito colateral implementado para validar politica, contrato e prontidao do payload antes de habilitar escrita real;
+- [x] operacao oficial `orcamentos/gerar_parcelas` descoberta e contrato validado (`valor_total`, `forma_pagamento_id`, `numero_parcelas`; opcionais `intervalo_dias` e `data_primeira_parcela`); o MCP classifica a chamada POST como escrita e exige `confirmar_escrita=true`, portanto o calculo local permanece ativo ate a fase controlada de escrita;
 - [x] MCP oficial do HubSpot validado no contexto do conector ChatGPT, com leitura real de COMPANY;
 - [x] disponibilidade MCP HubSpot confirmada com leitura e escrita para COMPANY, CONTACT, DEAL, LINE_ITEM, PRODUCT, TASK e NOTE;
 - [x] smoke read-only HubSpot executado com sucesso em COMPANY pelo conector ChatGPT;
