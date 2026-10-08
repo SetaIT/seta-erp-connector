@@ -1418,6 +1418,47 @@ app.post('/erp/orcamentos', async (req, res) => {
   } catch (err) { handleError(err, res); }
 });
 
+app.get('/oauth/hubspot-mcp/callback', (req, res) => {
+  const hasCode = typeof req.query?.code === 'string' && req.query.code.length > 0;
+  const oauthError = typeof req.query?.error === 'string' ? req.query.error : null;
+  if (oauthError) {
+    return res.status(400).json({
+      status: 'error',
+      integration: 'hubspot_mcp',
+      stage: 'oauth_callback',
+      error: oauthError,
+      message: 'HubSpot MCP authorization was not completed.'
+    });
+  }
+  if (!hasCode) {
+    return res.status(200).json({
+      status: 'ready',
+      integration: 'hubspot_mcp',
+      stage: 'oauth_callback',
+      token_exchange_enabled: false,
+      message: 'OAuth callback is available. Configure the HubSpot MCP Auth App and runtime credentials before starting authorization.'
+    });
+  }
+  return res.status(503).json({
+    status: 'pending_configuration',
+    integration: 'hubspot_mcp',
+    stage: 'oauth_callback',
+    token_exchange_enabled: false,
+    message: 'Authorization code received but token exchange is intentionally disabled until HubSpot MCP client credentials and PKCE state storage are configured.'
+  });
+});
+
+app.get('/oauth/hubspot-mcp/status', (_req, res) => {
+  res.json({
+    status: 'ready_for_connector_setup',
+    integration: 'hubspot_mcp',
+    mcp_url: 'https://mcp.hubspot.com',
+    redirect_path: '/oauth/hubspot-mcp/callback',
+    oauth_pkce_required: true,
+    token_exchange_enabled: false
+  });
+});
+
 app.get('/erp/hubspot/configuracao-proposta', (req, res) => {
   try { res.json({ status: 'success', data: loadProposalRules() }); } catch (err) { handleError(err, res); }
 });
