@@ -132,3 +132,31 @@ test("GestaoClick write contract validates receipt create required fields", () =
   assert.equal(result.valid, true);
   assert.deepEqual(result.missing, []);
 });
+
+
+test("GestaoClick write policy allows audited proposal delete", () => {
+  assert.deepEqual(
+    gestaoClickWritePolicy({ recurso: "orcamentos", acao: "deletar", confirmarEscrita: true, readOnly: false }),
+    { allowed: true, reason: "allowed", recurso: "orcamentos", acao: "deletar" }
+  );
+});
+
+test("GestaoClick write contract requires id on proposal delete", () => {
+  const missingId = gestaoClickWriteContract({
+    recurso: "orcamentos",
+    acao: "deletar",
+    dados: {}
+  });
+  assert.equal(missingId.valid, false);
+  assert.deepEqual(missingId.missing, ["id"]);
+
+  const ready = gestaoClickWriteContract({
+    recurso: "orcamentos",
+    acao: "deletar",
+    id: "123",
+    dados: {}
+  });
+  assert.equal(ready.valid, true);
+  assert.deepEqual(ready.required, []);
+  assert.deepEqual(ready.missing, []);
+});
