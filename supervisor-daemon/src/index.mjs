@@ -1121,6 +1121,12 @@ app.post("/events", requireDispatcherAuth, async (req, res) => {
 
 app.post("/tasks/:id/claim", requireDispatcherAuth, async (req, res) => {
   if (!isUuid(req.params.id)) return res.status(400).json({ message:"task id must be a UUID" });
+  // Never claim a task unless a real executor has supplied a unique run reference.
+  // Legacy dispatcher calls without an executor reference are rejected.
+  const executorRunUrl = req.body?.executorRunUrl;
+  if (typeof executorRunUrl !== "string" || !/^https:\/\//i.test(executorRunUrl)) {
+    return res.status(422).json({ message: "executorRunUrl (HTTPS) is required to claim a task" });
+  }
   const agent = String(req.body?.agent || "supervisor-executivo");
   const runId = crypto.randomUUID();
   const result = await withTransaction(async client => {
@@ -1135,10 +1141,10 @@ app.post("/tasks/:id/claim", requireDispatcherAuth, async (req, res) => {
     `, [req.params.id, agent]);
     if (!taskResult.rows[0]) return null;
     const runResult = await client.query(`
-      INSERT INTO supervisor_runs(id, task_id, agent, status)
-      VALUES ($1,$2,$3,'running')
+      INSERT INTO supervisor_runs(id, task_id, agent, status, result)
+      VALUES ($1,$2,$3,'running',$4::jsonb)
       RETURNING *
-    `, [runId, req.params.id, agent]);
+    `, [runId, req.params.id, agent, JSON.stringify({ executorRunUrl })]);
     return { task: taskResult.rows[0], run: runResult.rows[0] };
   });
   if (!result) return res.status(409).json({ message:"task is not claimable" });
