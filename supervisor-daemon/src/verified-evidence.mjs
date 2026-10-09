@@ -21,6 +21,8 @@ export async function verifyGitHubActionsEvidence(evidence, taskId, { fetchImpl 
     if (run.id !== Number(match[1]) || run.repository?.full_name !== REPO ||
         run.status !== "completed" || run.conclusion !== "success" ||
         run.event !== "workflow_dispatch" ||
+        run.inputs?.scope !== "supervisor-qa" ||
+        run.inputs?.task_id !== taskId ||
         run.display_title !== `ERP Executor ${taskId}` ||
         run.path !== "SetaIT/seta-erp-connector/.github/workflows/verified-erp-executor.yml@main") return false;
   }
