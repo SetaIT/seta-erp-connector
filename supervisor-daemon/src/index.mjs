@@ -1123,6 +1123,11 @@ app.post("/events", requireDispatcherAuth, async (req, res) => {
 });
 
 app.post("/tasks/:id/claim", requireDispatcherAuth, async (req, res) => {
+  // Never claim a roadmap task before an approved, task-specific executor exists.
+  const configuredScope = await query("SELECT payload->>'executorScope' AS scope FROM supervisor_tasks WHERE id=$1 AND status='pending'", [req.params.id]);
+  if (configuredScope.rows[0] && configuredScope.rows[0].scope !== "supervisor-qa") {
+    return res.status(422).json({ message: "no approved task-specific executor configured; refusing to claim ERP roadmap task" });
+  }
   if (!isUuid(req.params.id)) return res.status(400).json({ message:"task id must be a UUID" });
   const executorRunUrl = req.body?.executorRunUrl;
   if (typeof executorRunUrl !== "string" || !/^https:\/\//i.test(executorRunUrl)) {
