@@ -1,7 +1,8 @@
 const REPO = "SetaIT/seta-erp-connector";
 const RUN_URL = /^https:\/\/github\.com\/SetaIT\/seta-erp-connector\/actions\/runs\/([1-9][0-9]*)\/?$/;
 
-export async function verifyGitHubActionsEvidence(evidence, { fetchImpl = fetch } = {}) {
+export async function verifyGitHubActionsEvidence(evidence, taskId, { fetchImpl = fetch } = {}) {
+  if (!/^[0-9a-f-]{36}$/i.test(String(taskId || ""))) return false;
   if (!Array.isArray(evidence) || evidence.length === 0) return false;
   for (const item of evidence) {
     if (!item || item.type !== "github_actions" || typeof item.url !== "string") return false;
@@ -19,7 +20,9 @@ export async function verifyGitHubActionsEvidence(evidence, { fetchImpl = fetch 
     try { run = await response.json(); } catch { return false; }
     if (run.id !== Number(match[1]) || run.repository?.full_name !== REPO ||
         run.status !== "completed" || run.conclusion !== "success" ||
-        run.event !== "workflow_dispatch") return false;
+        run.event !== "workflow_dispatch" ||
+        run.display_title !== `ERP Executor ${taskId}` ||
+        run.path !== "SetaIT/seta-erp-connector/.github/workflows/verified-erp-executor.yml@main") return false;
   }
   return true;
 }
