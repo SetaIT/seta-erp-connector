@@ -781,6 +781,8 @@ async function supervisorCycle() {
       WHERE singleton=true
     `, [mode, now]);
     lastPollAt = now.toISOString();
+    const queueSnapshot = await query("SELECT status, count(*)::int AS count FROM supervisor_tasks GROUP BY status");
+    console.log("supervisor-queue-snapshot", JSON.stringify(queueSnapshot.rows));
 
     await query(`
       UPDATE supervisor_tasks
