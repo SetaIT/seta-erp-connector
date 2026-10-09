@@ -10,6 +10,7 @@ import {
   structuredLog,
 } from './commercial-write-reconciliation.js';
 import { applyConfiguredPaymentTerms } from './proposal-payment-terms.js';
+import { calculateProposalTotal } from './proposal-totals.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -505,14 +506,8 @@ function parseMoney(value, fieldName) {
   return parsed;
 }
 
-function proposalTotal(products) {
-  if (!Array.isArray(products) || products.length === 0) throw requestError('produtos deve conter pelo menos um item', { field: 'produtos' });
-  return products.reduce((total, item, index) => {
-    const product = item?.produto || {};
-    const quantity = parseMoney(product.quantidade ?? 1, `produtos[${index}].produto.quantidade`);
-    const unitPrice = parseMoney(product.valor_venda, `produtos[${index}].produto.valor_venda`);
-    return total + quantity * unitPrice;
-  }, 0);
+function proposalTotal(products, services = []) {
+  return calculateProposalTotal({ produtos: products, servicos: services });
 }
 
 function formatProposalMoney(value, currency) {
@@ -974,7 +969,7 @@ function buildProposalIntroduction(body) {
   const currency = String(body.moeda || rules.currency_default || 'BRL').trim().toUpperCase();
   if (!['BRL', 'USD'].includes(currency)) throw requestError('moeda invalida', { field: 'moeda', allowed: ['BRL', 'USD'] });
 
-  const total = proposalTotal(body.produtos);
+  const total = proposalTotal(body.produtos, body.servicos);
   const formattedValue = formatProposalMoney(total, currency);
   const pattern = typeKey === 'compra'
     ? (currency === 'USD' ? typeRule.introduction_pattern_usd : typeRule.introduction_pattern_brl)
@@ -1419,7 +1414,7 @@ app.post('/erp/orcamentos', async (req, res) => {
     const { typeRule } = getProposalTypeRule(tipo_proposta);
     const paymentApplication = applyConfiguredPaymentTerms({
       body: betelBody,
-      total: proposalTotal(betelBody.produtos),
+      total: proposalTotal(betelBody.produtos, betelBody.servicos),
       paymentTerms: typeRule.payment_terms || null
     });
     Object.assign(betelBody, paymentApplication.body);
@@ -1881,3 +1876,4 @@ hubspotMcpOAuthDiscovery()
   });
 
 app.listen(PORT, '0.0.0.0', () => console.log(`Seta ERP Connector listening on 0.0.0.0:${PORT}`));
+
