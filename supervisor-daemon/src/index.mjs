@@ -1142,7 +1142,7 @@ app.post("/tasks/:id/claim", requireDispatcherAuth, async (req, res) => {
           SELECT 1 FROM supervisor_tasks earlier
           WHERE earlier.project = supervisor_tasks.project
             AND earlier.id <> supervisor_tasks.id
-            AND earlier.payload->>'parentTaskId' IS NOT DISTINCT FROM supervisor_tasks.payload->>'parentTaskId'
+            AND earlier.payload->>'parent_task_id' IS NOT DISTINCT FROM supervisor_tasks.payload->>'parent_task_id'
             AND earlier.payload ? 'sequence'
             AND supervisor_tasks.payload ? 'sequence'
             AND (earlier.payload->>'sequence') ~ '^[0-9]+$'
