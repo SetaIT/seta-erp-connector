@@ -1147,9 +1147,18 @@ app.post("/tasks/:id/claim", requireDispatcherAuth, async (req, res) => {
 
 app.post("/tasks/:id/complete", requireDispatcherAuth, async (req, res) => {
   if (!isUuid(req.params.id)) return res.status(400).json({ message:"task id must be a UUID" });
-  const resultJson = req.body?.result && typeof req.body.result === "object"
-    ? req.body.result
-    : { message: String(req.body?.result || "completed") };
+  // Production safety gate: a task cannot be marked done without independently
+  // verifiable execution evidence. This endpoint does not run the executor.
+  const evidence = req.body?.result?.evidence;
+  if (!Array.isArray(evidence) || evidence.length === 0 ||
+      !evidence.every(item => item && typeof item === "object" &&
+        typeof item.type === "string" && item.type.trim() &&
+        typeof item.url === "string" && /^https:\/\//i.test(item.url))) {
+    return res.status(422).json({
+      message: "completion requires result.evidence with at least one HTTPS evidence URL and type"
+    });
+  }
+  const resultJson = req.body.result;
   const result = await withTransaction(async client => {
     const taskResult = await client.query(`
       UPDATE supervisor_tasks
