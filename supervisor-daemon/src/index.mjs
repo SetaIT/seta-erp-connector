@@ -1,6 +1,7 @@
 import express from "express";
 import pg from "pg";
 import crypto from "node:crypto";
+import { verifyGitHubActionsEvidence } from "./verified-evidence.mjs";
 
 const { Pool } = pg;
 const PORT = Number(process.env.PORT || 3000);
@@ -1173,6 +1174,13 @@ app.post("/tasks/:id/complete", requireDispatcherAuth, async (req, res) => {
     return res.status(422).json({
       message: "completion requires result.evidence with at least one HTTPS evidence URL and type"
     });
+  }
+  const taskScope = await query("SELECT payload->>'executorScope' AS scope FROM supervisor_tasks WHERE id=$1 AND status='running'", [req.params.id]);
+  if (taskScope.rows[0]?.scope !== "supervisor-qa") {
+    return res.status(422).json({ message: "task has no approved executor scope; QA-only evidence cannot complete ERP roadmap work" });
+  }
+  if (!(await verifyGitHubActionsEvidence(evidence, req.params.id))) {
+    return res.status(422).json({ message: "evidence must reference a completed successful workflow_dispatch run in SetaIT/seta-erp-connector" });
   }
   const resultJson = req.body.result;
   const result = await withTransaction(async client => {

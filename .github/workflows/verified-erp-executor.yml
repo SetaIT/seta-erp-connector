@@ -1,0 +1,53 @@
+name: Verified ERP Executor
+run-name: ERP Executor ${{ inputs.task_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: "Supervisor task UUID"
+        required: true
+        type: string
+      scope:
+        description: "Supported read-only execution scope"
+        required: true
+        type: choice
+        options:
+          - supervisor-qa
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate execution scope
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+          SCOPE: ${{ inputs.scope }}
+        run: |
+          if [[ ! "$TASK_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            echo "Invalid task UUID" >&2
+            exit 1
+          fi
+          test "$SCOPE" = "supervisor-qa"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install supervisor dependencies
+        working-directory: supervisor-daemon
+        run: npm install --no-audit --no-fund
+      - name: Validate syntax
+        working-directory: supervisor-daemon
+        run: node --check src/index.mjs
+      - name: Execute supervisor regression tests
+        working-directory: supervisor-daemon
+        run: npm test
+      - name: Publish execution summary
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+        run: |
+          echo "## Read-only supervisor QA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Task: $TASK_ID" >> "$GITHUB_STEP_SUMMARY"
+          echo "Scope: supervisor-qa" >> "$GITHUB_STEP_SUMMARY"
+          echo "This run verifies supervisor tests only. It does not complete an ERP roadmap task." >> "$GITHUB_STEP_SUMMARY"
