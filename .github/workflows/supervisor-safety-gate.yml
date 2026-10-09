@@ -1,0 +1,24 @@
+name: Supervisor Safety Gate
+on:
+  pull_request:
+    paths:
+      - "supervisor-daemon/**"
+      - ".github/workflows/supervisor-safety-gate.yml"
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: supervisor-daemon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check syntax
+        run: node --check src/index.mjs
+      - name: Run tests
+        run: npm test

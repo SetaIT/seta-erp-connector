@@ -1121,6 +1121,10 @@ app.post("/events", requireDispatcherAuth, async (req, res) => {
 
 app.post("/tasks/:id/claim", requireDispatcherAuth, async (req, res) => {
   if (!isUuid(req.params.id)) return res.status(400).json({ message:"task id must be a UUID" });
+  const executorRunUrl = req.body?.executorRunUrl;
+  if (typeof executorRunUrl !== "string" || !/^https:\/\//i.test(executorRunUrl)) {
+    return res.status(422).json({ message: "executorRunUrl (HTTPS) is required to claim a task" });
+  }
   const agent = String(req.body?.agent || "supervisor-executivo");
   const runId = crypto.randomUUID();
   const result = await withTransaction(async client => {
@@ -1131,14 +1135,26 @@ app.post("/tasks/:id/claim", requireDispatcherAuth, async (req, res) => {
           blocked_reason=null,
           updated_at=now()
       WHERE id=$1 AND status='pending' AND requires_human=false
+        AND NOT EXISTS (
+          SELECT 1 FROM supervisor_tasks earlier
+          WHERE earlier.project = supervisor_tasks.project
+            AND earlier.id <> supervisor_tasks.id
+            AND earlier.payload->>'parentTaskId' IS NOT DISTINCT FROM supervisor_tasks.payload->>'parentTaskId'
+            AND earlier.payload ? 'sequence'
+            AND supervisor_tasks.payload ? 'sequence'
+            AND (earlier.payload->>'sequence') ~ '^[0-9]+$'
+            AND (supervisor_tasks.payload->>'sequence') ~ '^[0-9]+$'
+            AND (earlier.payload->>'sequence')::int < (supervisor_tasks.payload->>'sequence')::int
+            AND earlier.status <> 'done'
+        )
       RETURNING *
     `, [req.params.id, agent]);
     if (!taskResult.rows[0]) return null;
     const runResult = await client.query(`
-      INSERT INTO supervisor_runs(id, task_id, agent, status)
-      VALUES ($1,$2,$3,'running')
+      INSERT INTO supervisor_runs(id, task_id, agent, status, result)
+      VALUES ($1,$2,$3,'running',$4::jsonb)
       RETURNING *
-    `, [runId, req.params.id, agent]);
+    `, [runId, req.params.id, agent, JSON.stringify({ executorRunUrl })]);
     return { task: taskResult.rows[0], run: runResult.rows[0] };
   });
   if (!result) return res.status(409).json({ message:"task is not claimable" });
@@ -1147,9 +1163,18 @@ app.post("/tasks/:id/claim", requireDispatcherAuth, async (req, res) => {
 
 app.post("/tasks/:id/complete", requireDispatcherAuth, async (req, res) => {
   if (!isUuid(req.params.id)) return res.status(400).json({ message:"task id must be a UUID" });
-  const resultJson = req.body?.result && typeof req.body.result === "object"
-    ? req.body.result
-    : { message: String(req.body?.result || "completed") };
+  // Production safety gate: a task cannot be marked done without independently
+  // verifiable execution evidence. This endpoint does not run the executor.
+  const evidence = req.body?.result?.evidence;
+  if (!Array.isArray(evidence) || evidence.length === 0 ||
+      !evidence.every(item => item && typeof item === "object" &&
+        typeof item.type === "string" && item.type.trim() &&
+        typeof item.url === "string" && /^https:\/\//i.test(item.url))) {
+    return res.status(422).json({
+      message: "completion requires result.evidence with at least one HTTPS evidence URL and type"
+    });
+  }
+  const resultJson = req.body.result;
   const result = await withTransaction(async client => {
     const taskResult = await client.query(`
       UPDATE supervisor_tasks
