@@ -1175,7 +1175,7 @@ app.post("/tasks/:id/complete", requireDispatcherAuth, async (req, res) => {
       message: "completion requires result.evidence with at least one HTTPS evidence URL and type"
     });
   }
-  if (!(await verifyGitHubActionsEvidence(evidence))) {
+  if (!(await verifyGitHubActionsEvidence(evidence, req.params.id))) {
     return res.status(422).json({ message: "evidence must reference a completed successful workflow_dispatch run in SetaIT/seta-erp-connector" });
   }
   const resultJson = req.body.result;
