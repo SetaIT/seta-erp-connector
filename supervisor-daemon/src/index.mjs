@@ -1,6 +1,7 @@
 import express from "express";
 import pg from "pg";
 import crypto from "node:crypto";
+import { verifyGitHubActionsEvidence } from "./verified-evidence.mjs";
 
 const { Pool } = pg;
 const PORT = Number(process.env.PORT || 3000);
@@ -1173,6 +1174,9 @@ app.post("/tasks/:id/complete", requireDispatcherAuth, async (req, res) => {
     return res.status(422).json({
       message: "completion requires result.evidence with at least one HTTPS evidence URL and type"
     });
+  }
+  if (!(await verifyGitHubActionsEvidence(evidence))) {
+    return res.status(422).json({ message: "evidence must reference a completed successful workflow_dispatch run in SetaIT/seta-erp-connector" });
   }
   const resultJson = req.body.result;
   const result = await withTransaction(async client => {
