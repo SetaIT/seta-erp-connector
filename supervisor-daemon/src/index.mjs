@@ -1144,12 +1144,11 @@ app.post("/tasks/:id/claim", requireDispatcherAuth, async (req, res) => {
             AND earlier.payload->>'parentTaskId' IS NOT DISTINCT FROM supervisor_tasks.payload->>'parentTaskId'
             AND earlier.payload ? 'sequence'
             AND supervisor_tasks.payload ? 'sequence'
-            AND (earlier.payload->>'sequence') ~ '^[0-9]+
-    `, [req.params.id, agent]);
-    if (!taskResult.rows[0]) return null;
-    const runResult = await client.query(`
-      INSERT INTO supervisor_runs(id, task_id, agent, status, result)
-      VALUES ($1,$2,$3,'running',$4::jsonb)
+            AND (earlier.payload->>'sequence') ~ '^[0-9]+$'
+            AND (supervisor_tasks.payload->>'sequence') ~ '^[0-9]+$'
+            AND (earlier.payload->>'sequence')::int < (supervisor_tasks.payload->>'sequence')::int
+            AND earlier.status <> 'done'
+        )
       RETURNING *
     `, [runId, req.params.id, agent, JSON.stringify({ executorRunUrl })]);
     return { task: taskResult.rows[0], run: runResult.rows[0] };
