@@ -819,6 +819,8 @@ app.get("/health", async (_req, res) => {
       service:"seta-erp-supervisor-daemon",
       instanceId:INSTANCE_ID,
       autonomyMode:AUTONOMY_MODE,
+      executionCapability:"not-configured",
+      automaticTaskDispatch:false,
       dispatcherAuth:DISPATCHER_TOKEN ? "configured" : "missing",
       gestaoclickMcp: gestaoclickMcpConfigured() ? "configured" : "missing",
       gestaoclickMcpMode: GESTAOCLICK_MCP_READ_ONLY ? "read-only" : "write-enabled",
