@@ -9,7 +9,7 @@ test("task claim cannot skip earlier tasks from same roadmap", () => {
   const code = source.slice(a, b);
   assert.match(code, /NOT EXISTS/);
   assert.match(code, /earlier\.project = supervisor_tasks\.project/);
-  assert.match(code, /parentTaskId/);
+  assert.match(code, /parent_task_id/);
   assert.match(code, /earlier\.status <> 'done'/);
   assert.match(code, /status\(409\)/);
 });
