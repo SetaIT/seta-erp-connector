@@ -83,7 +83,7 @@ export function matchedQaRun(run,taskId,startedAt) {
 
 export async function reconcileAccepted({pool,githubToken,verifyEvidence,fetchImpl=fetch}) {
   if(!githubToken || typeof verifyEvidence!=="function") return {status:"unconfigured"};
-  const pending=await pool.query(`SELECT t.id,t.retry_count,t.max_retries,r.id AS run_id,r.started_at
+  const pending=await pool.query(`SELECT t.id,t.retry_count,t.max_retries,r.id AS run_id,r.started_at,r.result->>'dispatchStatus' AS dispatch_status
     FROM supervisor_tasks t JOIN LATERAL (
       SELECT id,started_at,result FROM supervisor_runs
       WHERE task_id=t.id AND status='running' ORDER BY started_at DESC LIMIT 1
@@ -115,9 +115,9 @@ export async function reconcileAccepted({pool,githubToken,verifyEvidence,fetchIm
           const locked=await c.query("SELECT retry_count,max_retries FROM supervisor_tasks WHERE id=$1 AND status='running' FOR UPDATE",[task.id]);
           if(locked.rowCount){
             const retries=Number(locked.rows[0].retry_count)+1;
-            const blocked=retries>=Number(locked.rows[0].max_retries);
-            await c.query("UPDATE supervisor_tasks SET status=$2,retry_count=$3,requires_human=$4,blocked_reason=$5,updated_at=now() WHERE id=$1",[task.id,blocked?"blocked":"pending",retries,blocked,terminalFailure?`QA workflow ${terminalFailure}`:"QA execution timed out without verified evidence"]);
-            await c.query("UPDATE supervisor_runs SET status='failed',finished_at=now(),result=$2::jsonb WHERE id=$1 AND status='running'",[task.run_id,JSON.stringify({error:terminalFailure?`QA workflow ${terminalFailure}`:"QA evidence timeout",expired:!terminalFailure})]);
+            const blocked=task.dispatch_status!=='accepted' || retries>=Number(locked.rows[0].max_retries);
+            await c.query("UPDATE supervisor_tasks SET status=$2,retry_count=$3,requires_human=$4,blocked_reason=$5,updated_at=now() WHERE id=$1",[task.id,blocked?"blocked":"pending",retries,blocked,terminalFailure?`QA workflow ${terminalFailure}`:task.dispatch_status!=="accepted"?"Ambiguous QA dispatch: manual reconciliation required":"QA execution timed out without verified evidence"]);
+            await c.query("UPDATE supervisor_runs SET status='failed',finished_at=now(),result=$2::jsonb WHERE id=$1 AND status='running'",[task.run_id,JSON.stringify({error:terminalFailure?`QA workflow ${terminalFailure}`:"QA evidence timeout",expired:!terminalFailure,ambiguous:task.dispatch_status!=="accepted"})]);
             expired++;
           }
           await c.query("COMMIT");
