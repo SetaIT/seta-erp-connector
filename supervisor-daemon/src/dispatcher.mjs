@@ -35,11 +35,11 @@ export async function dispatchOne({pool,executorUrl,executorToken,verifyEvidence
     if (!task) { await client.query("COMMIT"); return {status:"idle"}; }
     runId=crypto.randomUUID();
     await client.query("UPDATE supervisor_tasks SET status='running',agent='qa-webhook',updated_at=now() WHERE id=$1",[task.id]);
-    await client.query("INSERT INTO supervisor_runs(id,task_id,agent,status,result) VALUES ($1,$2,'qa-webhook','running',$3::jsonb)",[runId,task.id,JSON.stringify({dispatcher:"automatic"})]);
+    await client.query("INSERT INTO supervisor_runs(id,task_id,agent,status,result) VALUES ($1,$2,'qa-webhook','running',$3::jsonb)",[runId,task.id,JSON.stringify({dispatcher:"automatic",dispatchStatus:"dispatching",attemptedAt:new Date().toISOString()})]);
     await client.query("COMMIT");
   } catch(err) { await client.query("ROLLBACK"); throw err; }
   finally { client.release(); }
-  let evidence, failure;
+  let evidence, failure, uncertain=false;
   try {
     const response=await fetch(executorUrl,{method:"POST",headers:{"authorization":`Bearer ${executorToken}`,"content-type":"application/json"},body:JSON.stringify({taskId:task.id,runId,scope:"supervisor-qa",readOnly:true,action:task.payload.action||"regression"}),signal:AbortSignal.timeout(timeoutMs)});
     if(!response.ok) throw new Error(`executor HTTP ${response.status}`);
@@ -50,7 +50,11 @@ export async function dispatchOne({pool,executorUrl,executorToken,verifyEvidence
     }
     evidence=result.evidence;
     if(result.status!=="completed"||!Array.isArray(evidence)||evidence.length===0||!(await verifyEvidence(evidence,task.id))) throw new Error("Executor returned no verified successful QA evidence");
-  }catch(err){failure=String(err?.message||err).slice(0,500);}
+  }catch(err){failure=String(err?.message||err).slice(0,500);uncertain=true;}
+  if(uncertain){
+    await pool.query("UPDATE supervisor_runs SET result=$2::jsonb WHERE id=$1 AND status='running'",[runId,JSON.stringify({dispatchStatus:"uncertain",error:failure,attemptedAt:new Date().toISOString()})]);
+    return {status:"uncertain",taskId:task.id,runId};
+  }
   const c=await pool.connect();
   try {
     await c.query("BEGIN");
@@ -85,7 +89,7 @@ export async function reconcileAccepted({pool,githubToken,verifyEvidence,fetchIm
       WHERE task_id=t.id AND status='running' ORDER BY started_at DESC LIMIT 1
     ) r ON true
     WHERE t.status='running' AND t.agent='qa-webhook'
-      AND r.result->>'dispatchStatus'='accepted'
+      AND r.result->>'dispatchStatus' IN ('accepted','uncertain','dispatching')
     ORDER BY r.started_at ASC LIMIT 10`);
   let completed=0,failed=0,expired=0;
   for(const task of pending.rows){
