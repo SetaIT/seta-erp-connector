@@ -793,7 +793,7 @@ async function supervisorCycle() {
           blocked_reason='Recovered stale running task after daemon restart',
           updated_at=now()
       WHERE status='running'
-        AND NOT EXISTS (SELECT 1 FROM supervisor_runs r WHERE r.task_id=supervisor_tasks.id AND r.status='running' AND r.result->>'dispatchStatus'='accepted')
+        AND NOT EXISTS (SELECT 1 FROM supervisor_runs r WHERE r.task_id=supervisor_tasks.id AND r.status='running' AND r.result->>'dispatchStatus' IN ('accepted','uncertain','dispatching'))
         AND updated_at < now() - interval '30 minutes'
         AND retry_count < max_retries
     `);
