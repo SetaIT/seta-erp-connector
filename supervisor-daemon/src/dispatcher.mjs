@@ -115,7 +115,7 @@ export async function reconcileAccepted({pool,githubToken,verifyEvidence,fetchIm
           const locked=await c.query("SELECT retry_count,max_retries FROM supervisor_tasks WHERE id=$1 AND status='running' FOR UPDATE",[task.id]);
           if(locked.rowCount){
             const retries=Number(locked.rows[0].retry_count)+1;
-            const blocked=Boolean(terminalFailure) || task.dispatch_status!=='accepted' || retries>=Number(locked.rows[0].max_retries);
+            const blocked=true; // Never auto-retry after GitHub may have accepted the request.
             await c.query("UPDATE supervisor_tasks SET status=$2,retry_count=$3,requires_human=$4,blocked_reason=$5,updated_at=now() WHERE id=$1",[task.id,blocked?"blocked":"pending",retries,blocked,terminalFailure?`QA workflow ${terminalFailure}`:task.dispatch_status!=="accepted"?"Ambiguous QA dispatch: manual reconciliation required":"QA execution timed out without verified evidence"]);
             await c.query("UPDATE supervisor_runs SET status='failed',finished_at=now(),result=$2::jsonb WHERE id=$1 AND status='running'",[task.run_id,JSON.stringify({error:terminalFailure?`QA workflow ${terminalFailure}`:"QA evidence timeout",expired:!terminalFailure,ambiguous:task.dispatch_status!=="accepted"})]);
             expired++;
