@@ -1,3 +1,4 @@
+import { dispatchOne } from "./dispatcher.mjs";
 import express from "express";
 import pg from "pg";
 import crypto from "node:crypto";
@@ -10,6 +11,9 @@ const DISPATCHER_TOKEN = process.env.DISPATCHER_TOKEN || "";
 const GESTAOCLICK_MCP_PROXY_TOKEN = process.env.GESTAOCLICK_MCP_PROXY_TOKEN || "";
 const HEARTBEAT_MS = Number(process.env.SUPERVISOR_HEARTBEAT_MS || 30000);
 const POLL_MS = Number(process.env.SUPERVISOR_POLL_MS || 15000);
+const QA_EXECUTOR_URL = process.env.SUPERVISOR_QA_EXECUTOR_URL || "";
+const QA_EXECUTOR_TOKEN = process.env.SUPERVISOR_QA_EXECUTOR_TOKEN || "";
+let dispatchRunning = false;
 const INSTANCE_ID = process.env.RAILWAY_REPLICA_ID || crypto.randomUUID();
 const AUTONOMY_MODE = process.env.SUPERVISOR_AUTONOMY_MODE || "autonomous";
 const GESTAOCLICK_MCP_URL = String(process.env.GESTAOCLICK_MCP_URL || "").trim();
@@ -802,6 +806,12 @@ async function supervisorCycle() {
       WHERE retry_count >= max_retries
         AND status IN ('pending','running')
     `);
+    if (!dispatchRunning && QA_EXECUTOR_URL && QA_EXECUTOR_TOKEN) {
+      dispatchRunning = true;
+      void dispatchOne({pool,executorUrl:QA_EXECUTOR_URL,executorToken:QA_EXECUTOR_TOKEN,verifyEvidence:verifyGitHubActionsEvidence})
+        .catch(error => { lastError=String(error?.message||error); console.error("dispatcher-error",lastError); })
+        .finally(() => { dispatchRunning=false; });
+    }
     lastError = null;
   } catch (error) {
     lastError = error instanceof Error ? error.message : String(error);
@@ -819,8 +829,8 @@ app.get("/health", async (_req, res) => {
       service:"seta-erp-supervisor-daemon",
       instanceId:INSTANCE_ID,
       autonomyMode:AUTONOMY_MODE,
-      executionCapability:"not-configured",
-      automaticTaskDispatch:false,
+      executionCapability:QA_EXECUTOR_URL && QA_EXECUTOR_TOKEN ? "approved-qa-only" : "not-configured",
+      automaticTaskDispatch:Boolean(QA_EXECUTOR_URL && QA_EXECUTOR_TOKEN),
       dispatcherAuth:DISPATCHER_TOKEN ? "configured" : "missing",
       gestaoclickMcp: gestaoclickMcpConfigured() ? "configured" : "missing",
       gestaoclickMcpMode: GESTAOCLICK_MCP_READ_ONLY ? "read-only" : "write-enabled",
