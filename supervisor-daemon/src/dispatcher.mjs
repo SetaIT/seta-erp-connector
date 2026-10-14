@@ -68,6 +68,15 @@ export async function dispatchOne({pool,executorUrl,executorToken,verifyEvidence
   }catch(err){await c.query("ROLLBACK");throw err;}finally{c.release();}
 }
 
+export function matchedQaRun(run,taskId,startedAt) {
+  if(!run || run.event!=="workflow_dispatch" || run.display_title!==`ERP Executor ${taskId}`) return false;
+  if(run.path!=="SetaIT/seta-erp-connector/.github/workflows/verified-erp-executor.yml@main") return false;
+  if(run.repository?.full_name && run.repository.full_name!=="SetaIT/seta-erp-connector") return false;
+  const created=Date.parse(run.created_at||"");
+  const started=Date.parse(startedAt||"");
+  return Number.isFinite(created) && Number.isFinite(started) && created>=started-120000;
+}
+
 export async function reconcileAccepted({pool,githubToken,verifyEvidence,fetchImpl=fetch}) {
   if(!githubToken || typeof verifyEvidence!=="function") return {status:"unconfigured"};
   const pending=await pool.query(`SELECT t.id,t.retry_count,t.max_retries,r.id AS run_id,r.started_at
@@ -86,16 +95,16 @@ export async function reconcileAccepted({pool,githubToken,verifyEvidence,fetchIm
       });
       if(!response.ok) throw new Error(`GitHub runs HTTP ${response.status}`);
       const runs=(await response.json()).workflow_runs||[];
-      let success=null;
+      let success=null,terminalFailure=null;
       for(const run of runs){
-        if(run.created_at && new Date(run.created_at)<new Date(task.started_at).getTime()-120000) continue;
+        if(!matchedQaRun(run,task.id,task.started_at)) continue;
         if(run.status!=="completed") continue;
         const evidence=[{type:"github_actions",url:`https://github.com/SetaIT/seta-erp-connector/actions/runs/${run.id}`}];
         if(run.conclusion==="success" && await verifyEvidence(evidence,task.id)){success=evidence;break;}
-        // Do not attribute unrelated workflow failures to this task.
+        if(["failure","cancelled","timed_out","action_required"].includes(run.conclusion)) terminalFailure=run.conclusion;
       }
       if(!success) {
-        if(Date.now()-new Date(task.started_at).getTime()<20*60*1000) continue;
+        if(!terminalFailure && Date.now()-new Date(task.started_at).getTime()<20*60*1000) continue;
         const c=await pool.connect();
         try {
           await c.query("BEGIN");
@@ -103,8 +112,8 @@ export async function reconcileAccepted({pool,githubToken,verifyEvidence,fetchIm
           if(locked.rowCount){
             const retries=Number(locked.rows[0].retry_count)+1;
             const blocked=retries>=Number(locked.rows[0].max_retries);
-            await c.query("UPDATE supervisor_tasks SET status=$2,retry_count=$3,requires_human=$4,blocked_reason=$5,updated_at=now() WHERE id=$1",[task.id,blocked?"blocked":"pending",retries,blocked,"QA execution timed out without verified evidence"]);
-            await c.query("UPDATE supervisor_runs SET status='failed',finished_at=now(),result=$2::jsonb WHERE id=$1 AND status='running'",[task.run_id,JSON.stringify({error:"QA evidence timeout",expired:true})]);
+            await c.query("UPDATE supervisor_tasks SET status=$2,retry_count=$3,requires_human=$4,blocked_reason=$5,updated_at=now() WHERE id=$1",[task.id,blocked?"blocked":"pending",retries,blocked,terminalFailure?`QA workflow ${terminalFailure}`:"QA execution timed out without verified evidence"]);
+            await c.query("UPDATE supervisor_runs SET status='failed',finished_at=now(),result=$2::jsonb WHERE id=$1 AND status='running'",[task.run_id,JSON.stringify({error:terminalFailure?`QA workflow ${terminalFailure}`:"QA evidence timeout",expired:!terminalFailure})]);
             expired++;
           }
           await c.query("COMMIT");
