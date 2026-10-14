@@ -44,6 +44,10 @@ export async function dispatchOne({pool,executorUrl,executorToken,verifyEvidence
     const response=await fetch(executorUrl,{method:"POST",headers:{"authorization":`Bearer ${executorToken}`,"content-type":"application/json"},body:JSON.stringify({taskId:task.id,runId,scope:"supervisor-qa",readOnly:true,action:task.payload.action||"regression"}),signal:AbortSignal.timeout(timeoutMs)});
     if(!response.ok) throw new Error(`executor HTTP ${response.status}`);
     const result=await response.json();
+    if (response.status===202 && result.status==="accepted") {
+      await pool.query("UPDATE supervisor_runs SET result=$2::jsonb WHERE id=$1 AND status='running'",[runId,JSON.stringify({dispatchStatus:"accepted",acceptedAt:new Date().toISOString()})]);
+      return {status:"accepted",taskId:task.id,runId};
+    }
     evidence=result.evidence;
     if(result.status!=="completed"||!Array.isArray(evidence)||evidence.length===0||!(await verifyEvidence(evidence,task.id))) throw new Error("Executor returned no verified successful QA evidence");
   }catch(err){failure=String(err?.message||err).slice(0,500);}
