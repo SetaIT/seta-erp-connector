@@ -17,12 +17,19 @@ export async function dispatchOne({pool,executorUrl,executorToken,verifyEvidence
     await client.query("BEGIN");
     const selected = await client.query(`SELECT * FROM supervisor_tasks
       WHERE status='pending' AND requires_human=false AND retry_count < max_retries
-      AND NOT EXISTS (SELECT 1 FROM supervisor_tasks earlier
+      AND NOT EXISTS (
+        SELECT 1 FROM supervisor_tasks earlier
         WHERE earlier.project=supervisor_tasks.project
           AND earlier.id<>supervisor_tasks.id
           AND earlier.payload->>'parent_task_id' IS NOT NULL
           AND earlier.payload->>'parent_task_id'=supervisor_tasks.payload->>'parent_task_id'
-          AND earlier.payload->>'sequence' ~ '^[0-9]+
+          AND earlier.payload ? 'sequence'
+          AND supervisor_tasks.payload ? 'sequence'
+          AND (earlier.payload->>'sequence') ~ '^[0-9]+$'
+          AND (supervisor_tasks.payload->>'sequence') ~ '^[0-9]+$'
+          AND (earlier.payload->>'sequence')::int < (supervisor_tasks.payload->>'sequence')::int
+          AND earlier.status <> 'done'
+      )
       ORDER BY priority DESC, created_at ASC FOR UPDATE SKIP LOCKED LIMIT 20`);
     task = selected.rows.find(dispatchAllowed);
     if (!task) { await client.query("COMMIT"); return {status:"idle"}; }
