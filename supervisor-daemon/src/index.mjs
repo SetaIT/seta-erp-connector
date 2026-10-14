@@ -1,4 +1,4 @@
-import { dispatchOne } from "./dispatcher.mjs";
+import { dispatchOne, reconcileAccepted } from "./dispatcher.mjs";
 import express from "express";
 import pg from "pg";
 import crypto from "node:crypto";
@@ -793,6 +793,7 @@ async function supervisorCycle() {
           blocked_reason='Recovered stale running task after daemon restart',
           updated_at=now()
       WHERE status='running'
+        AND NOT EXISTS (SELECT 1 FROM supervisor_runs r WHERE r.task_id=supervisor_tasks.id AND r.status='running' AND r.result->>'dispatchStatus'='accepted')
         AND updated_at < now() - interval '30 minutes'
         AND retry_count < max_retries
     `);
@@ -808,7 +809,8 @@ async function supervisorCycle() {
     `);
     if (!dispatchRunning && QA_EXECUTOR_URL && QA_EXECUTOR_TOKEN) {
       dispatchRunning = true;
-      void dispatchOne({pool,executorUrl:QA_EXECUTOR_URL,executorToken:QA_EXECUTOR_TOKEN,verifyEvidence:verifyGitHubActionsEvidence})
+      void reconcileAccepted({pool,githubToken:process.env.GITHUB_TOKEN,verifyEvidence:verifyGitHubActionsEvidence})
+        .then(() => dispatchOne({pool,executorUrl:QA_EXECUTOR_URL,executorToken:QA_EXECUTOR_TOKEN,verifyEvidence:verifyGitHubActionsEvidence}))
         .catch(error => { lastError=String(error?.message||error); console.error("dispatcher-error",lastError); })
         .finally(() => { dispatchRunning=false; });
     }
