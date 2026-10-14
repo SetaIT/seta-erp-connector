@@ -67,3 +67,45 @@ export async function dispatchOne({pool,executorUrl,executorToken,verifyEvidence
     return {status:failure?"failed":"done",taskId:task.id};
   }catch(err){await c.query("ROLLBACK");throw err;}finally{c.release();}
 }
+
+export async function reconcileAccepted({pool,githubToken,verifyEvidence,fetchImpl=fetch}) {
+  if(!githubToken || typeof verifyEvidence!=="function") return {status:"unconfigured"};
+  const pending=await pool.query(`SELECT t.id,t.retry_count,t.max_retries,r.id AS run_id,r.started_at
+    FROM supervisor_tasks t JOIN LATERAL (
+      SELECT id,started_at,result FROM supervisor_runs
+      WHERE task_id=t.id AND status='running' ORDER BY started_at DESC LIMIT 1
+    ) r ON true
+    WHERE t.status='running' AND t.agent='qa-webhook'
+      AND r.result->>'dispatchStatus'='accepted'
+    ORDER BY r.started_at ASC LIMIT 10`);
+  let completed=0,failed=0;
+  for(const task of pending.rows){
+    try{
+      const response=await fetchImpl("https://api.github.com/repos/SetaIT/seta-erp-connector/actions/workflows/verified-erp-executor.yml/runs?event=workflow_dispatch&per_page=50",{
+        headers:{Authorization:`Bearer ${githubToken}`,Accept:"application/vnd.github+json"},signal:AbortSignal.timeout(12000)
+      });
+      if(!response.ok) throw new Error(`GitHub runs HTTP ${response.status}`);
+      const runs=(await response.json()).workflow_runs||[];
+      let success=null,explicitFailure=false;
+      for(const run of runs){
+        if(run.created_at && new Date(run.created_at)<new Date(task.started_at).getTime()-120000) continue;
+        if(run.status!=="completed") continue;
+        const evidence=[{type:"github_actions",url:`https://github.com/SetaIT/seta-erp-connector/actions/runs/${run.id}`}];
+        if(run.conclusion==="success" && await verifyEvidence(evidence,task.id)){success=evidence;break;}
+        // Do not attribute unrelated workflow failures to this task.
+      }
+      if(!success) continue;
+      const c=await pool.connect();
+      try{
+        await c.query("BEGIN");
+        const claimed=await c.query("UPDATE supervisor_tasks SET status='done',updated_at=now(),blocked_reason=null WHERE id=$1 AND status='running' RETURNING id",[task.id]);
+        if(claimed.rowCount) {
+          await c.query("UPDATE supervisor_runs SET status='done',finished_at=now(),result=$2::jsonb WHERE id=$1 AND status='running'",[task.run_id,JSON.stringify({evidence:success})]);
+          completed++;
+        }
+        await c.query("COMMIT");
+      }catch(err){await c.query("ROLLBACK");throw err;}finally{c.release();}
+    }catch(err){console.error("qa-reconcile-error",String(err?.message||err).slice(0,200));failed++;}
+  }
+  return {status:"ok",checked:pending.rows.length,completed,errors:failed};
+}
