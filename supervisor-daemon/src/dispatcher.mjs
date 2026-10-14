@@ -6,11 +6,11 @@ export function dispatchAllowed(task) {
   if (task?.requires_human || task?.status !== "pending" || p.executorScope !== "supervisor-qa") return false;
   if (p.approved !== true || p.readOnly !== true || p.destructive === true) return false;
   if (forbidden.test([task.title,task.description,p.action].join(" "))) return false;
-  return p.executor === "qa-webhook";
+  return p.executor === "qa-webhook" && p.action === "regression";
 }
 
 export async function dispatchOne({pool,executorUrl,executorToken,verifyEvidence,timeoutMs=20000}) {
-  if (!executorUrl || !executorToken || !/^https:\/\//.test(executorUrl)) return {status:"unconfigured"};
+  if (!executorUrl || !executorToken || !/^https:\/\//.test(executorUrl) || typeof verifyEvidence !== "function") return {status:"unconfigured"};
   const client = await pool.connect();
   let task,runId;
   try {
