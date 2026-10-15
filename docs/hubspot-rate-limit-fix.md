@@ -1,0 +1,1 @@
+# HubSpot 429 mitigation\n\nProduction logs show HTTP 429. Respect Retry-After (seconds or HTTP date), capped at 60 seconds; otherwise exponential backoff for read-only retries. No write retries are introduced.\n\nPatch should be reviewed and deployed only after tests.\n
