@@ -1,0 +1,31 @@
+name: Supervisor Dispatcher CI
+on:
+  pull_request:
+    paths:
+      - 'supervisor-daemon/**'
+      - '.github/workflows/supervisor-dispatcher-ci.yml'
+  push:
+    branches:
+      - feature/supervisor-safe-dispatcher
+permissions:
+  contents: read
+jobs:
+  supervisor-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        working-directory: supervisor-daemon
+        run: npm install --no-audit --no-fund
+      - name: Check JavaScript syntax
+        working-directory: supervisor-daemon
+        run: |
+          node --check src/dispatcher.mjs
+          node --check src/index.mjs
+      - name: Run supervisor tests
+        working-directory: supervisor-daemon
+        run: npm test
