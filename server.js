@@ -434,6 +434,7 @@ async function hubspotRequest(path, { method = 'GET', body, correlationId, opera
 
   const err = new Error(`HubSpot API error ${response.status}`);
   err.status = response.status;
+  err.retryAfterMs = (() => { const raw=response.headers.get('retry-after'); if (!raw) return null; const n=Number(raw); if (Number.isFinite(n)) return Math.max(0,Math.min(60000,n*1000)); const date=Date.parse(raw); return Number.isFinite(date)?Math.max(0,Math.min(60000,date-Date.now())):null; })();
   err.data = data;
   err.source = 'hubspot';
   err.endpoint = path;
@@ -1075,7 +1076,7 @@ async function hubspotReadWithRetry(request) {
     } catch (error) {
       lastError = error;
       if (error?.status !== 429 || attempt === 2) throw error;
-      await sleep(550 * (attempt + 1));
+      await sleep(error.retryAfterMs ?? Math.min(8000, 1000 * (2 ** attempt)));
     }
   }
   throw lastError;
