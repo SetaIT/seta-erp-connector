@@ -1,12 +1,26 @@
 # ERP Supervisor - executor integration safety gate
 
-Status: **NOT CONNECTED** (2026-10-09).
+Status: **IMPLEMENTED IN PR #104; RUNTIME NOT CONNECTED** (2026-10-14).
 
 ## Verified evidence
 - Railway production deployment `bd8609c9-0545-4eaf-8b04-742ac35e87bf`: SUCCESS.
 - n8n seed execution `12206`: seven tasks ERP-201..ERP-207 created successfully.
 - n8n observer execution `12208`: two done, seven pending.
-- `supervisor-daemon/src/index.mjs` `supervisorCycle()` updates heartbeat, requeues stale running tasks and blocks max-retry tasks. It **does not** claim, dispatch or execute pending work.
+- `supervisor-daemon/src/index.mjs` runs the dispatcher from the existing supervisor cycle when both QA executor settings are present.
+- `supervisor-daemon/src/dispatcher.mjs` claims only explicitly approved, read-only `supervisor-qa` regression tasks; it records each dispatch in `supervisor_runs` and reconciles task-specific GitHub Actions evidence.
+- GitHub Actions run correlation uses the workflow path, repository, `main` branch, `workflow_dispatch` event, task-bound display title and start time. It follows the REST API response shape (`.github/workflows/<file>@main`); workflow-run API responses do not expose dispatch inputs.
+- Terminal failures, cancellations and expired or ambiguous dispatches are recorded as failed and blocked for human review. The dispatcher does not automatically resubmit an ambiguous dispatch.
+- Destructive, financial, CRM-write and production-write tasks remain outside the allowed dispatcher scope.
+
+## Runtime configuration required to activate
+Configure these only after the PR is reviewed and merged:
+
+| Railway service | Required variables |
+| --- | --- |
+| Supervisor daemon | `SUPERVISOR_QA_EXECUTOR_URL` (executor `/execute` URL), `SUPERVISOR_QA_EXECUTOR_TOKEN`, `GITHUB_TOKEN` with read access to Actions, plus existing `DATABASE_URL` |
+| QA executor | `SUPERVISOR_QA_EXECUTOR_TOKEN` (same shared secret), `GITHUB_TOKEN` with permission to dispatch the `verified-erp-executor.yml` workflow |
+
+Run the executor as a separate Railway service from the same repository using start command `node supervisor-daemon/src/qa-executor.mjs`; keep the daemon's existing start command. Do not configure production task writes as part of this QA-only activation.
 
 ## Required acceptance gates (before enabling an executor)
 1. A real executor must have a configured, authenticated endpoint and explicit supported task types. No fabricated agent labels.
@@ -29,4 +43,4 @@ Status: **NOT CONNECTED** (2026-10-09).
 | ERP-206 | Rollback / promotion gate | Pending |
 | ERP-207 | Production smoke | Pending; final gate |
 
-Do not equate `autonomy_mode=autonomous` or a heartbeat with an active task executor. The parent roadmap task marked done is not independently verified as complete.
+Do not equate `autonomy_mode=autonomous` or a heartbeat with an active task executor. Runtime activation remains off until the required Railway settings are present and the health endpoint reports `executionCapability: approved-qa-only`.

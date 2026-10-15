@@ -74,8 +74,10 @@ export async function dispatchOne({pool,executorUrl,executorToken,verifyEvidence
 
 export function matchedQaRun(run,taskId,startedAt) {
   if(!run || run.event!=="workflow_dispatch" || run.display_title!==`ERP Executor ${taskId}`) return false;
-  if(run.path!=="SetaIT/seta-erp-connector/.github/workflows/verified-erp-executor.yml@main") return false;
-  if(run.repository?.full_name && run.repository.full_name!=="SetaIT/seta-erp-connector") return false;
+  // The REST workflow-runs API returns paths such as
+  // ".github/workflows/file.yml@main" (not owner/repo-prefixed paths).
+  if(run.path!==".github/workflows/verified-erp-executor.yml@main") return false;
+  if(run.repository?.full_name!=="SetaIT/seta-erp-connector" || run.head_branch!=="main") return false;
   const created=Date.parse(run.created_at||"");
   const started=Date.parse(startedAt||"");
   return Number.isFinite(created) && Number.isFinite(started) && created>=started-120000;
