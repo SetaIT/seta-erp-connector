@@ -1087,7 +1087,7 @@ app.get("/status", requireDispatcherAuth, async (_req, res) => {
   res.json({ state: state.rows[0] || null, tasks: tasks.rows, events: events.rows });
 });
 
-app.get("/tasks", async (req, res) => {
+app.get("/tasks", requireDispatcherAuth, async (req, res) => {
   const limit = Math.min(Number(req.query.limit || 100), 500);
   const { rows } = await query(`
     SELECT * FROM supervisor_tasks
