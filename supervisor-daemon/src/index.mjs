@@ -1078,7 +1078,7 @@ app.post("/mcp/gestaoclick/write", requireDispatcherAuth, async (req, res) => {
   }
 });
 
-app.get("/status", async (_req, res) => {
+app.get("/status", requireDispatcherAuth, async (_req, res) => {
   const [state, tasks, events] = await Promise.all([
     query("SELECT * FROM supervisor_state WHERE singleton=true"),
     query(`SELECT status, count(*)::int AS count FROM supervisor_tasks GROUP BY status ORDER BY status`),
@@ -1087,7 +1087,7 @@ app.get("/status", async (_req, res) => {
   res.json({ state: state.rows[0] || null, tasks: tasks.rows, events: events.rows });
 });
 
-app.get("/tasks", async (req, res) => {
+app.get("/tasks", requireDispatcherAuth, async (req, res) => {
   const limit = Math.min(Number(req.query.limit || 100), 500);
   const { rows } = await query(`
     SELECT * FROM supervisor_tasks
